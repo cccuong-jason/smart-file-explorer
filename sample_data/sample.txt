@@ -1,4 +1,0 @@
-DeepSearch Desktop là ứng dụng tìm kiếm nội dung thông minh.
-Ứng dụng sử dụng mô hình all-MiniLM-L6-v2 để tạo vector embedding.
-Dữ liệu được lập chỉ mục bằng LangChain và FAISS, chạy hoàn toàn offline.
-Nội dung text này dùng để kiểm thử chức năng lập chỉ mục và tìm kiếm.

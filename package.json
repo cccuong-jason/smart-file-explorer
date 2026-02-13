@@ -1,0 +1,38 @@
+{
+  "name": "smart-file-explorer-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "npx serve@latest out",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.17.2",
+    "clsx": "^2.1.1",
+    "dexie": "^4.3.0",
+    "fuse.js": "^7.1.0",
+    "idb": "^8.0.3",
+    "lucide-react": "^0.563.0",
+    "mammoth": "^1.11.0",
+    "next": "16.1.6",
+    "pdfjs-dist": "^5.4.624",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "sharp": "^0.34.5",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
