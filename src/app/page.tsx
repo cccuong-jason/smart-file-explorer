@@ -11,7 +11,8 @@ import { ProgressBar } from '@/components/ui/progress-bar';
 import { FilePreviewPanel } from '@/components/file-viewer/file-preview-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { FilterSection } from '@/components/sidebar/filter-section';
-import { FolderOpen, RefreshCw, FileText, FileCode, Image as ImageIcon, ArrowUpDown } from 'lucide-react';
+import { FolderOpen, RefreshCw, FileText, FileCode, Image as ImageIcon, ArrowUpDown, Star } from 'lucide-react';
+
 import { useToast } from '@/components/ui/toast';
 import { HelperAlert } from '@/components/ui/helper-alert';
 
@@ -42,15 +43,17 @@ export default function Home() {
     date: string;
     size: string[];
     tags: string[];
+    favorites: boolean;
   }>({
     types: [],
     date: 'any',
     size: [],
-    tags: []
+    tags: [],
+    favorites: false
   });
 
   // Sorting
-  const [sortBy, setSortBy] = useState<'date' | 'size' | 'name'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'size' | 'name' | 'relevance'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Pagination
@@ -140,6 +143,8 @@ export default function Home() {
       return;
     }
     setIsSearching(true);
+    setSortBy('relevance');  // Auto-switch sort to relevance
+    setSortOrder('desc');
     try {
       const results = await searchFiles(query);
       const mapped = results.map(r => ({ ...r.file, score: r.score }));
@@ -236,6 +241,11 @@ export default function Home() {
         if (!matchesTag) return false;
       }
 
+      // Favorites Filter
+      if (activeFilters.favorites) {
+        if (!f.isStarred) return false;
+      }
+
       return true;
     });
 
@@ -243,6 +253,9 @@ export default function Home() {
     return result.sort((a, b) => {
       let comparison = 0;
       switch (sortBy) {
+        case 'relevance':
+          comparison = (a.score || 0) - (b.score || 0);
+          break;
         case 'date':
           comparison = (a.lastModified || 0) - (b.lastModified || 0);
           break;
@@ -352,14 +365,28 @@ export default function Home() {
       <div className="flex-1 overflow-y-auto p-5 pt-2 space-y-2">
         <div className="flex items-center justify-between text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">
           Filters
-          {(activeFilters.types.length > 0 || activeFilters.date !== 'any' || activeFilters.size.length > 0 || activeFilters.tags.length > 0) && (
+          {(activeFilters.types.length > 0 || activeFilters.date !== 'any' || activeFilters.size.length > 0 || activeFilters.tags.length > 0 || activeFilters.favorites) && (
             <button
-              onClick={() => setActiveFilters({ types: [], date: 'any', size: [], tags: [] })}
+              onClick={() => setActiveFilters({ types: [], date: 'any', size: [], tags: [], favorites: false })}
               className="text-indigo-600 hover:text-indigo-800 normal-case"
             >
               Clear All
             </button>
           )}
+        </div>
+
+        {/* Favorites Toggle */}
+        <div className="mb-4">
+          <button
+            onClick={() => setActiveFilters(prev => ({ ...prev, favorites: !prev.favorites }))}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeFilters.favorites
+              ? 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+              : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+              }`}
+          >
+            <Star className={`w-4 h-4 ${activeFilters.favorites ? 'fill-yellow-500 text-yellow-500' : 'text-gray-400'}`} />
+            Show Favorites Only
+          </button>
         </div>
 
         <FilterSection
@@ -457,9 +484,12 @@ export default function Home() {
           </div>
 
           {/* File List */}
-          <div className="flex-1 overflow-y-auto bg-white scroll-smooth">
+          <div className="flex-1 overflow-y-auto bg-white scroll-smooth relative">
             {paginatedFiles.length > 0 ? (
-              <div className="divide-y divide-gray-50">
+              <div
+                key={currentPage}
+                className="divide-y divide-gray-50 animate-fade-in-slide-up"
+              >
                 {paginatedFiles.map((file, idx) => (
                   <FileListItem
                     key={file.path || idx}

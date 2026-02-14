@@ -16,7 +16,9 @@ export const metadata: Metadata = {
   title: "Smart File Explorer",
   description: "A client-side file explorer with AI capabilities - Explore, Search, and Analyze your local files securely.",
   icons: {
-    icon: '/icon.png', // Explicitly reference if needed, though app/icon.png works automatically
+    icon: '/logo.png',
+    shortcut: '/logo.png',
+    apple: '/logo.png',
   }
 };
 
