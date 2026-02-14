@@ -98,8 +98,8 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
                         {file.name}
                     </h4>
                     {score !== undefined && (
-                        <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full shrink-0">
-                            {(score * 100).toFixed(0)}% Match
+                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full shrink-0 border border-emerald-100 shadow-sm">
+                            {Math.min(Math.round(score * 100), 100)}% Match
                         </span>
                     )}
                 </div>
