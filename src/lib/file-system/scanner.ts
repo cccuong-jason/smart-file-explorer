@@ -103,11 +103,19 @@ export async function processFile(fileHandle: FileSystemFileHandle, filePath: st
         // else if (fileExtension === '.pdf') { ... }
 
         if (content) {
-            const embedding = await generateEmbedding(content.slice(0, 1000)); // Limit embedding context for speed
+            let embedding: number[] | undefined;
+            try {
+                // Attempt to generate embedding
+                embedding = await generateEmbedding(content.slice(0, 1000));
+            } catch (err) {
+                console.warn(`Embedding generation failed for ${file.name} (network restricted?):`, err);
+                // Continue without embedding - keyword search will still work
+            }
+
             await storeFile({
                 ...metadata,
                 content,
-                embedding,
+                embedding, // Will be undefined if failed
                 processingStatus: 'completed'
             });
         } else {
