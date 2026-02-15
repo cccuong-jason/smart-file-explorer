@@ -1,5 +1,15 @@
 import { pipeline, PipelineType } from '@xenova/transformers';
 
+// Configure Transformers.js to use local models
+import { env } from '@xenova/transformers';
+
+// Skip local checks (we are running largely in browser, but this setting helps in some contexts)
+env.allowLocalModels = false;
+// Disable remote models - force usage of local files
+env.allowRemoteModels = false;
+// Set the local model path (relative to public/)
+env.localModelPath = '/models/';
+
 // Singleton to ensure model is loaded only once
 class EmbeddingPipeline {
     static task: PipelineType = 'feature-extraction';
@@ -13,13 +23,13 @@ class EmbeddingPipeline {
         }
         if (this.instance === null) {
             try {
-                // Attempt to load the model. This triggers a network request to HuggingFace.
-                // If offline or blocked by CSP/CORS, this will throw.
-                this.instance = await pipeline(this.task, this.model);
+                // Load model from local 'public/models' directory
+                this.instance = await pipeline(this.task, this.model, {
+                    local_files_only: true,
+                });
             } catch (error) {
-                console.error("Failed to load vector embedding model. Semantic search will be permanently disabled for this session.", error);
-                this.isDisabled = true; // prevent further attempts
-                throw error; // Re-throw to be handled by caller
+                console.error("Failed to load LOCAL vector embedding model. Check 'public/models' integrity.", error);
+                throw error;
             }
         }
         return this.instance;
