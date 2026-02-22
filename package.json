@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
+    "prebuild": "node scripts/download-model.mjs",
     "build": "next build --webpack",
     "start": "npx serve@latest out",
-    "lint": "eslint"
+    "lint": "eslint",
+    "download-model": "node scripts/download-model.mjs"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
