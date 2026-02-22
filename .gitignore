@@ -20,6 +20,9 @@
 # production
 /build
 
+# AI model assets - downloaded at build time via scripts/download-model.mjs
+/public/models
+
 # misc
 .DS_Store
 *.pem
