@@ -3,24 +3,19 @@ import { pipeline, PipelineType } from '@xenova/transformers';
 // Configure Transformers.js to use local models
 import { env } from '@xenova/transformers';
 
-// Skip local checks (we are running largely in browser, but this setting helps in some contexts)
+// Read from environment variables (set in .env.local or Vercel dashboard).
+// Fallback to safe production defaults if not set.
 env.allowLocalModels = false;
-// Disable remote models - force usage of local files
-env.allowRemoteModels = false;
-// Set the local model path (relative to public/)
-env.localModelPath = '/models/';
+env.allowRemoteModels = process.env.NEXT_PUBLIC_ALLOW_REMOTE_MODELS === 'true';
+env.localModelPath = process.env.NEXT_PUBLIC_MODEL_PATH ?? '/models/';
 
 // Singleton to ensure model is loaded only once
 class EmbeddingPipeline {
     static task: PipelineType = 'feature-extraction';
     static model = 'Xenova/all-MiniLM-L6-v2';
     static instance: any = null;
-    static isDisabled = false;
 
     static async getInstance() {
-        if (this.isDisabled) {
-            throw new Error("Semantic search is disabled due to previous load failure.");
-        }
         if (this.instance === null) {
             try {
                 // Load model from local 'public/models' directory
