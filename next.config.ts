@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
         'onnxruntime-node$': false,
       };
     }
+
+    // Support WASM and ONNX files
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: 'asset/resource',
+    });
+
     return config;
   },
 };
