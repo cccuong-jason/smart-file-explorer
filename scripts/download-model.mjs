@@ -22,13 +22,19 @@ const ROOT = path.resolve(__dirname, '..');
 const MODEL_DIR = path.join(ROOT, 'public', 'models', 'Xenova', 'all-MiniLM-L6-v2');
 const BASE_URL = 'https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main';
 
-// All files needed by @xenova/transformers for this model
-const FILES = [
-    'config.json',
-    'tokenizer.json',
-    'tokenizer_config.json',
-    'special_tokens_map.json',
-    'onnx/model_quantized.onnx',
+// Required files for @xenova/transformers
+const REQUIRED_FILES = [
+  'config.json',
+  'tokenizer.json',
+  'tokenizer_config.json',
+  'special_tokens_map.json',
+  'onnx/model_quantized.onnx',
+];
+
+// Optional files that some model variants may request; provide stubs if missing
+const OPTIONAL_FILES = [
+  'added_tokens.json',
+  'preprocessor_config.json',
 ];
 
 async function download(url, dest) {
@@ -59,7 +65,8 @@ async function main() {
     // Ensure directories exist
     fs.mkdirSync(path.join(MODEL_DIR, 'onnx'), { recursive: true });
 
-    for (const file of FILES) {
+    // Download required files
+    for (const file of REQUIRED_FILES) {
         const url = `${BASE_URL}/${file}`;
         const dest = path.join(MODEL_DIR, file);
 
@@ -70,6 +77,29 @@ async function main() {
             process.stdout.write(`\n`);
             console.error(`  ✗ ERROR: ${err.message}`);
             process.exit(1);
+        }
+    }
+
+    // Handle optional files: try to download; if 404, create minimal stub
+    for (const file of OPTIONAL_FILES) {
+        const url = `${BASE_URL}/${file}`;
+        const dest = path.join(MODEL_DIR, file);
+        process.stdout.write(`  ↓ ${file} (optional)... `);
+        try {
+            await download(url, dest);
+        } catch (err) {
+            if (String(err.message).includes('404')) {
+                // Create minimal valid JSON stub to satisfy loaders
+                const stub =
+                  file === 'added_tokens.json'
+                    ? { added_tokens: [] }
+                    : {};
+                fs.writeFileSync(dest, JSON.stringify(stub));
+                process.stdout.write(`stubbed\n`);
+            } else {
+                process.stdout.write(`\n`);
+                console.error(`  ⚠ Skipped optional file due to error: ${err.message}`);
+            }
         }
     }
 
