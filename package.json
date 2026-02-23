@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/download-model.mjs",
     "dev": "next dev --webpack",
     "prebuild": "node scripts/download-model.mjs",
     "build": "next build --webpack",
