@@ -5,7 +5,7 @@ import { env } from '@xenova/transformers';
 
 // Read from environment variables (set in .env.local or Vercel dashboard).
 // Fallback to safe production defaults if not set.
-env.allowLocalModels = false;
+env.allowLocalModels = true;
 env.allowRemoteModels = process.env.NEXT_PUBLIC_ALLOW_REMOTE_MODELS === 'true';
 env.localModelPath = process.env.NEXT_PUBLIC_MODEL_PATH ?? '/models/';
 
@@ -20,7 +20,7 @@ class EmbeddingPipeline {
             try {
                 // Load model from local 'public/models' directory
                 this.instance = await pipeline(this.task, this.model, {
-                    local_files_only: true,
+                    local_files_only: !env.allowRemoteModels,
                 });
             } catch (error) {
                 console.error("Failed to load LOCAL vector embedding model. Check 'public/models' integrity.", error);
