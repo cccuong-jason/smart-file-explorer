@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { countTotalFiles, createFileGenerator, processFile } from '@/lib/file-system/scanner';
+import { processFile, TauriFileMetadata } from '@/lib/file-system/scanner';
 import { searchFiles } from '@/lib/search/engine';
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import { getAllFiles, clearDatabase, toggleFileStar } from '@/lib/file-system/db';
 import { SearchInput } from '@/components/search/search-input';
 import { ResizableLayout } from '@/components/layout/resizable-layout';
@@ -91,41 +93,42 @@ export default function Home() {
 
   const handleSelectFolder = async () => {
     try {
-      const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+      const selected = await open({
+        directory: true,
+        multiple: false,
+      });
+      if (!selected) return;
+
+      const dirPath = selected as string;
+
       setIsScanning(true);
       setIsPaused(false);
-      setScanProgress({ count: 0, total: 0, currentFile: 'Discovering files...' });
+      setScanProgress({ count: 0, total: 0, currentFile: 'Discovering files via Rust...' });
 
-      // Phase 1: Count
-      const total = await countTotalFiles(dirHandle);
-      setScanProgress(prev => ({ ...prev, total, currentFile: 'Starting scan...' }));
+      // Fast scanning via Tauri Rust engine
+      const scannedFiles = await invoke<TauriFileMetadata[]>('scan_directory', { dirPath });
+      const total = scannedFiles.length;
 
-      // Phase 2: Process with Generator
+      setScanProgress(prev => ({ ...prev, total, currentFile: 'Starting processing...' }));
+
       let count = 0;
-      const generator = createFileGenerator(dirHandle);
-
-      for await (const { handle, path } of generator) {
-        // Pause Loop logic
+      for (const fileMeta of scannedFiles) {
         while (isPausedRef.current) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        setScanProgress({ count, total, currentFile: path });
-        await processFile(handle, path);
+        setScanProgress({ count, total, currentFile: fileMeta.name });
+        await processFile(fileMeta);
         count++;
 
-        // Refresh list occasionally? Or just at end?
-        // Let's refresh every 50 files so user sees progress
         if (count % 50 === 0) refreshData();
       }
 
       await refreshData();
       toast('Folder scan completed successfully', 'success');
     } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        console.error(error);
-        toast('Failed to scan folder', 'error');
-      }
+      console.error('Tauri scan error:', error);
+      toast('Failed to scan folder', 'error');
     } finally {
       setIsScanning(false);
       setIsPaused(false);
