@@ -40,3 +40,14 @@ body {
 .animate-fade-in-slide-up {
   animation: fade-in-slide-up 0.5s ease-out forwards;
 }
+
+/* Folder drop-zone lid animation */
+.drop-zone-folder .folder-lid {
+  transform-origin: 8px 20px;
+  transition: transform 0.3s ease, d 0.3s ease;
+}
+
+.group:hover .drop-zone-folder .folder-lid,
+.scale-\[1\.02\] .drop-zone-folder .folder-lid {
+  d: path("M8 20C8 17 10 15 13 15H24L29 20H51C54 20 56 18 56 15L52 10H26L22 6H13C10 6 8 8 8 11Z");
+}

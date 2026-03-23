@@ -1,4 +1,6 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 
 interface FileMetadata {
     processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
@@ -99,7 +101,32 @@ export const removeFileTag = async (path: string, tag: string) => {
     return [];
 };
 
+export const exportIndexToJSON = async () => {
+    const db = await getDB();
+    const allFiles = await db.getAll('files');
+    const jsonStr = JSON.stringify(allFiles, null, 2);
+    
+    const filePath = await save({
+        filters: [{
+            name: 'JSON Database Index',
+            extensions: ['json']
+        }],
+        defaultPath: `smart-file-explorer-index-${new Date().toISOString().split('T')[0]}.json`
+    });
+
+    if (filePath) {
+        await writeTextFile(filePath, jsonStr);
+    }
+    
+    return allFiles.length;
+};
+
 export const clearDatabase = async () => {
     const db = await getDB();
     await db.clear('files');
+}
+
+export const deleteFile = async (path: string) => {
+    const db = await getDB();
+    await db.delete('files', path);
 }

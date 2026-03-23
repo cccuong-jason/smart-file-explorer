@@ -1,12 +1,11 @@
-
 import { useState, useCallback } from 'react';
 import { FileText, FileCode, FileJson, FileType, Star, Image as ImageIcon, Music, Video, Archive } from 'lucide-react';
 import { clsx } from 'clsx';
 import { invoke, Channel } from '@tauri-apps/api/core';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
-import { appCacheDir, join } from '@tauri-apps/api/path';
+import { tempDir, join } from '@tauri-apps/api/path';
 
-interface FileListItemProps {
+interface FileGridItemProps {
     file: any;
     score?: number;
     isSelected?: boolean;
@@ -46,7 +45,6 @@ const COLOR_HEX: Record<string, { bg: string; fg: string }> = {
     green:  { bg: '#dcfce7', fg: '#16a34a' },
 };
 
-/** Render a drag-ghost on a canvas and return its data-URL */
 function createDragImage(fileName: string, color: string): string {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d')!;
@@ -56,7 +54,6 @@ function createDragImage(fileName: string, color: string): string {
     canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
 
-    // Rounded-rect background
     const r = 10;
     ctx.beginPath();
     ctx.moveTo(r, 0); ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
@@ -70,12 +67,10 @@ function createDragImage(fileName: string, color: string): string {
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Icon circle
     const c = COLOR_HEX[color] || COLOR_HEX.gray;
     ctx.beginPath(); ctx.arc(28, h / 2, 14, 0, Math.PI * 2);
     ctx.fillStyle = c.bg; ctx.fill();
 
-    // Simple file-document icon
     ctx.fillStyle = c.fg;
     ctx.beginPath();
     ctx.moveTo(22, 16); ctx.lineTo(30, 16); ctx.lineTo(34, 20);
@@ -84,7 +79,6 @@ function createDragImage(fileName: string, color: string): string {
     ctx.beginPath();
     ctx.moveTo(30, 16); ctx.lineTo(34, 20); ctx.lineTo(30, 20); ctx.closePath(); ctx.fill();
 
-    // Filename
     ctx.fillStyle = '#1f2937';
     ctx.font = '600 13px Inter, system-ui, sans-serif';
     const label = fileName.length > 22 ? fileName.slice(0, 20) + '\u2026' : fileName;
@@ -93,7 +87,7 @@ function createDragImage(fileName: string, color: string): string {
     return canvas.toDataURL('image/png');
 }
 
-export function FileListItem({ file, score, isSelected, onClick, onToggleStar }: FileListItemProps) {
+export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }: FileGridItemProps) {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'txt';
     const config = FILE_TYPE_CONFIG[ext] || { icon: FileText, color: 'gray', label: ext.toUpperCase() };
     const Icon = config.icon;
@@ -130,19 +124,14 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
         const dragImgUrl = createDragImage(file.name, config.color);
         
         try {
-            // More robust base64 conversion
             const res = await fetch(dragImgUrl);
             const blob = await res.blob();
             const bytes = new Uint8Array(await blob.arrayBuffer());
             
-            // Save to cache file
             const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
             const tmpFileName = `drag_ghost_${Date.now()}_${safeName}.png`;
             await writeFile(tmpFileName, bytes, { baseDir: BaseDirectory.Cache });
             
-            const cacheDirStr = await join(await invoke('plugin:path|get_app_cache_dir'), ''); 
-            // Better way to get path in v2 if path plugin is available, otherwise join works with strings
-            // Let's try to get the full path reliably
             const fullPath = await join(await invoke('plugin:path|get_app_cache_dir') as string, tmpFileName);
 
             const channel = new Channel();
@@ -169,79 +158,64 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
 
-    const formatDate = (ms: number) =>
-        new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-
     return (
         <div
             draggable
             onDragStart={handleDragStart}
             onClick={onClick}
             className={clsx(
-                'group relative flex items-start p-4 cursor-pointer transition-all border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                'group relative flex flex-col p-4 cursor-pointer transition-all border rounded-2xl overflow-hidden',
                 isSelected
-                    ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-l-4 border-l-indigo-600 dark:border-l-indigo-500'
-                    : 'bg-white dark:bg-gray-900 border-l-4 border-l-transparent pl-[calc(1rem+4px)]',
+                    ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600 shadow-sm'
+                    : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md hover:z-10',
             )}
         >
-            {/* Tinted overlay on source row while dragging, matching icon color accurately */}
             {isDragging && (
                 <div 
-                    className="absolute inset-0 z-20 pointer-events-none rounded-sm border-2 border-dashed border-white/20" 
+                    className="absolute inset-0 z-20 pointer-events-none rounded-xl border-2 border-dashed border-white/20 dark:border-white/10" 
                     style={{ backgroundColor: ghostOverlayColor }}
                 />
             )}
-
-            {/* File Icon Box */}
-            <div className={clsx('shrink-0 mr-4 h-12 w-12 rounded-xl flex items-center justify-center shadow-sm', colorClass)}>
-                <Icon className="h-6 w-6" />
-            </div>
-
-            <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex justify-between items-start">
-                    <h4 className={clsx('text-base font-semibold truncate pr-8', isSelected ? 'text-indigo-700 dark:text-indigo-400' : 'text-gray-900 dark:text-gray-100')}>
-                        {file.name}
-                    </h4>
-                    {score !== undefined && (
-                        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full shrink-0 border border-emerald-100 dark:border-emerald-800 shadow-sm">
-                            {Math.min(Math.round(score * 100), 100)}% Match
-                        </span>
-                    )}
-                </div>
-
-                <p className="text-xs text-gray-400 truncate font-mono inline-block">{file.path}</p>
-
-                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 pt-1">
-                    <span className={clsx('font-bold text-[10px] px-1.5 py-0.5 rounded uppercase', colorClass.replace('bg-', 'bg-opacity-20 bg-'))}>
-                        {config.label}
+            
+            {/* Top actions: Star & Score */}
+            <div className="flex justify-between items-start mb-2 w-full">
+                {score !== undefined ? (
+                    <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full shrink-0 border border-emerald-100 dark:border-emerald-800 shadow-sm">
+                        {Math.min(Math.round(score * 100), 100)}% Match
                     </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
-                    <span className="flex items-center gap-1">
-                        Size: <span className="font-medium text-gray-700 dark:text-gray-300">{formatSize(file.size)}</span>
-                    </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
-                    <span className="flex items-center gap-1">
-                        Modified: <span className="font-medium text-gray-700 dark:text-gray-300">{formatDate(file.lastModified)}</span>
-                    </span>
-                </div>
+                ) : <span />}
 
-                {file.snippet && (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 line-clamp-2 leading-relaxed border-l-2 border-gray-200 dark:border-gray-700 pl-3 italic">
-                        &quot;...{file.snippet}...&quot;
-                    </p>
-                )}
-            </div>
-
-            <div className="flex flex-col items-end gap-2 ml-4">
                 <button
                     onClick={(e) => { e.stopPropagation(); onToggleStar?.(e); }}
                     className={clsx(
-                        'p-1.5 rounded-full transition-colors hover:bg-gray-200 dark:hover:bg-gray-700',
-                        file.isStarred ? 'text-amber-400 fill-amber-400' : 'text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-400',
+                        'p-1.5 rounded-full transition-colors z-10',
+                        file.isStarred ? 'text-amber-400 fill-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20' : 'text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800',
                     )}
                 >
-                    <Star className={clsx('h-5 w-5', file.isStarred && 'fill-current')} />
+                    <Star className={clsx('h-4 w-4', file.isStarred && 'fill-current')} />
                 </button>
+            </div>
+
+            {/* Icon Center */}
+            <div className="flex flex-col items-center justify-center py-4 relative grow">
+                <div className={clsx('h-16 w-16 mb-3 rounded-2xl flex items-center justify-center shadow-inner', colorClass)}>
+                    <Icon className="h-8 w-8" />
+                </div>
+            </div>
+
+            {/* Bottom info */}
+            <div className="mt-auto space-y-1">
+                <h4 className={clsx('text-sm font-semibold truncate text-center', isSelected ? 'text-indigo-700 dark:text-indigo-400' : 'text-gray-900 dark:text-gray-100')} title={file.name}>
+                    {file.name}
+                </h4>
+                
+                <div className="flex items-center justify-center gap-2 text-[10px] text-gray-500 dark:text-gray-400 pt-1">
+                    <span className={clsx('font-bold px-1.5 py-0.5 rounded uppercase', colorClass.replace('bg-', 'bg-opacity-20 bg-'))}>
+                        {config.label}
+                    </span>
+                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+                    <span>{formatSize(file.size)}</span>
+                </div>
             </div>
         </div>
     );
