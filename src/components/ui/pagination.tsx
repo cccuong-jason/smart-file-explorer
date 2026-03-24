@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 
 interface PaginationProps {
     currentPage: number;
@@ -7,12 +8,11 @@ interface PaginationProps {
 }
 
 export function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) {
-    if (totalPages <= 1) return null;
+    const containerRef = useRef<HTMLDivElement>(null);
+    const pageRefs = useRef<Record<number, HTMLButtonElement>>({});
+    const [highlightStyle, setHighlightStyle] = useState({ left: 0, width: 0, opacity: 0 });
 
-    // Simple range generation for now. 
-    // For production, we might want "1, 2, ..., 10, 11" logic.
-    // Let's implement a smart range.
-    const getPageNumbers = () => {
+    const pages = useMemo(() => {
         const delta = 2;
         const range = [];
         for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
@@ -22,52 +22,86 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
         const showStart = currentPage - delta > 2;
         const showEnd = currentPage + delta < totalPages - 1;
 
-        const pages = [1];
-        if (showStart) pages.push(-1); // -1 for ellipsis
-        pages.push(...range);
-        if (showEnd) pages.push(-1);
-        if (totalPages > 1) pages.push(totalPages);
+        const p = [1];
+        if (showStart) p.push(-1); // -1 for ellipsis
+        p.push(...range);
+        if (showEnd) p.push(-1);
+        if (totalPages > 1) p.push(totalPages);
 
-        return pages;
-    };
+        return p;
+    }, [currentPage, totalPages]);
+
+    useEffect(() => {
+        const activeButton = pageRefs.current[currentPage];
+        const container = containerRef.current;
+        if (activeButton && container) {
+            const containerRect = container.getBoundingClientRect();
+            const buttonRect = activeButton.getBoundingClientRect();
+            setHighlightStyle({
+                left: buttonRect.left - containerRect.left,
+                width: buttonRect.width,
+                opacity: 1
+            });
+        } else {
+            setHighlightStyle(prev => ({ ...prev, opacity: 0 }));
+        }
+    }, [currentPage, pages]);
+
+    if (totalPages <= 1) return null;
 
     return (
-        <div className="flex items-center justify-center gap-1">
+        <div className="flex items-center justify-center gap-2">
             <button
                 disabled={currentPage === 1}
                 onClick={() => onPageChange(currentPage - 1)}
-                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-95 disabled:active:scale-100"
+                className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-white active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
                 aria-label="Previous Page"
             >
                 <ChevronLeft className="h-4 w-4" />
             </button>
 
-            {/* Pages Logic rendering ... - simplifying for brevity in replacement if no logic change */}
-            {/* Actually, let's keep the logic inline but just wrap it nicely */}
+            <div 
+                ref={containerRef}
+                className="relative flex items-center p-1 bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100 shadow-sm"
+            >
+                {/* Smooth sliding highlight */}
+                <div 
+                    className="absolute bg-indigo-600 shadow-lg shadow-indigo-200/50 rounded-lg transition-all duration-300 ease-in-out pointer-events-none h-8 z-0"
+                    style={{
+                        left: `${highlightStyle.left}px`,
+                        width: `${highlightStyle.width}px`,
+                        opacity: highlightStyle.opacity,
+                        top: '4px' // Centered within the p-1 padding
+                    }}
+                />
 
-            {getPageNumbers().map((page, idx) => (
-                page === -1 ? (
-                    <span key={`ellipsis-${idx}`} className="w-8 text-center text-gray-400 select-none">...</span>
-                ) : (
-                    <button
-                        key={page}
-                        onClick={() => onPageChange(page)}
-                        className={`
-                        w-8 h-8 rounded-lg text-sm font-medium transition-all active:scale-95
-                        ${currentPage === page
-                                ? 'bg-indigo-600 text-white shadow-md scale-100'
-                                : 'text-gray-600 hover:bg-gray-100 hover:text-indigo-600'}
-                    `}
-                    >
-                        {page}
-                    </button>
-                )
-            ))}
+                {pages.map((page, idx) => (
+                    page === -1 ? (
+                        <div key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-gray-400 select-none text-xs font-bold">
+                            ...
+                        </div>
+                    ) : (
+                        <button
+                            key={page}
+                            ref={el => { if(el) pageRefs.current[page] = el; }}
+                            onClick={() => onPageChange(page)}
+                            className={`
+                                relative z-10 w-8 h-8 rounded-lg text-xs font-bold transition-colors duration-200
+                                ${currentPage === page
+                                    ? 'text-white'
+                                    : 'text-gray-500 hover:text-indigo-600'}
+                            `}
+                        >
+                            {page}
+                        </button>
+                    )
+                ))}
+            </div>
 
             <button
                 disabled={currentPage === totalPages}
                 onClick={() => onPageChange(currentPage + 1)}
-                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-95 disabled:active:scale-100"
+                className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-white active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
                 aria-label="Next Page"
             >
                 <ChevronRight className="h-4 w-4" />

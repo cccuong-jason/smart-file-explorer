@@ -37,10 +37,9 @@ const OPTIONAL_FILES = [
   'preprocessor_config.json',
 ];
 
-async function download(url, dest) {
+async function download(url, dest, minValidSize = 100) {
     // Skip if file already exists and is non-empty (avoids re-downloading on every build)
-    const MIN_VALID_SIZE = 100;
-    if (fs.existsSync(dest) && fs.statSync(dest).size > MIN_VALID_SIZE) {
+    if (fs.existsSync(dest) && fs.statSync(dest).size > minValidSize) {
         process.stdout.write(`done (cached)\n`);
         return;
     }
@@ -86,7 +85,7 @@ async function main() {
         const dest = path.join(MODEL_DIR, file);
         process.stdout.write(`  ↓ ${file} (optional)... `);
         try {
-            await download(url, dest);
+            await download(url, dest, 1);
         } catch (err) {
             if (String(err.message).includes('404')) {
                 // Create minimal valid JSON stub to satisfy loaders

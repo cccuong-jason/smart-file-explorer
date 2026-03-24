@@ -1,6 +1,10 @@
 
+import { useState, useCallback } from 'react';
 import { FileText, FileCode, FileJson, FileType, Star, Image as ImageIcon, Music, Video, Archive } from 'lucide-react';
 import { clsx } from 'clsx';
+import { invoke, Channel } from '@tauri-apps/api/core';
+import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { appCacheDir, join } from '@tauri-apps/api/path';
 
 interface FileListItemProps {
     file: any;
@@ -11,7 +15,6 @@ interface FileListItemProps {
 }
 
 const FILE_TYPE_CONFIG: Record<string, { icon: any, color: string, label: string }> = {
-    // Code
     ts: { icon: FileCode, color: 'blue', label: 'TS' },
     tsx: { icon: FileCode, color: 'blue', label: 'TSX' },
     js: { icon: FileCode, color: 'yellow', label: 'JS' },
@@ -19,13 +22,11 @@ const FILE_TYPE_CONFIG: Record<string, { icon: any, color: string, label: string
     json: { icon: FileJson, color: 'orange', label: 'JSON' },
     css: { icon: FileType, color: 'pink', label: 'CSS' },
     html: { icon: FileCode, color: 'orange', label: 'HTML' },
-    // Docs
     pdf: { icon: FileText, color: 'red', label: 'PDF' },
     doc: { icon: FileText, color: 'blue', label: 'DOC' },
     docx: { icon: FileText, color: 'blue', label: 'DOCX' },
     txt: { icon: FileText, color: 'gray', label: 'TXT' },
     md: { icon: FileText, color: 'gray', label: 'MD' },
-    // Media
     jpg: { icon: ImageIcon, color: 'purple', label: 'JPG' },
     png: { icon: ImageIcon, color: 'purple', label: 'PNG' },
     svg: { icon: ImageIcon, color: 'purple', label: 'SVG' },
@@ -34,27 +35,131 @@ const FILE_TYPE_CONFIG: Record<string, { icon: any, color: string, label: string
     zip: { icon: Archive, color: 'gray', label: 'ZIP' },
 };
 
+const COLOR_HEX: Record<string, { bg: string; fg: string }> = {
+    blue:   { bg: '#dbeafe', fg: '#2563eb' },
+    yellow: { bg: '#fef9c3', fg: '#ca8a04' },
+    orange: { bg: '#ffedd5', fg: '#ea580c' },
+    pink:   { bg: '#fce7f3', fg: '#db2777' },
+    red:    { bg: '#fee2e2', fg: '#dc2626' },
+    gray:   { bg: '#f3f4f6', fg: '#4b5563' },
+    purple: { bg: '#f3e8ff', fg: '#9333ea' },
+    green:  { bg: '#dcfce7', fg: '#16a34a' },
+};
+
+/** Render a drag-ghost on a canvas and return its data-URL */
+function createDragImage(fileName: string, color: string): string {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    const dpr = window.devicePixelRatio || 1;
+    const w = 240, h = 48;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    // Rounded-rect background
+    const r = 10;
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+    ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h);
+    ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r);
+    ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(99,102,241,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Icon circle
+    const c = COLOR_HEX[color] || COLOR_HEX.gray;
+    ctx.beginPath(); ctx.arc(28, h / 2, 14, 0, Math.PI * 2);
+    ctx.fillStyle = c.bg; ctx.fill();
+
+    // Simple file-document icon
+    ctx.fillStyle = c.fg;
+    ctx.beginPath();
+    ctx.moveTo(22, 16); ctx.lineTo(30, 16); ctx.lineTo(34, 20);
+    ctx.lineTo(34, 32); ctx.lineTo(22, 32); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath();
+    ctx.moveTo(30, 16); ctx.lineTo(34, 20); ctx.lineTo(30, 20); ctx.closePath(); ctx.fill();
+
+    // Filename
+    ctx.fillStyle = '#1f2937';
+    ctx.font = '600 13px Inter, system-ui, sans-serif';
+    const label = fileName.length > 22 ? fileName.slice(0, 20) + '\u2026' : fileName;
+    ctx.fillText(label, 50, h / 2 + 5);
+
+    return canvas.toDataURL('image/png');
+}
+
 export function FileListItem({ file, score, isSelected, onClick, onToggleStar }: FileListItemProps) {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'txt';
     const config = FILE_TYPE_CONFIG[ext] || { icon: FileText, color: 'gray', label: ext.toUpperCase() };
     const Icon = config.icon;
+    const [isDragging, setIsDragging] = useState(false);
 
-    // Tailwind Safelist workaround (if not using full JIT or safe-listing dynamic classes)
-    // We'll use inline styles or specific class maps if needed. For now, assuming JIT works with dynamic template literals if they are simple,
-    // BUT dynamic classes like `bg-${color}-100` often fail if purge doesn't see them.
-    // Let's use a strict map for colors to be safe.
     const colorStyles: Record<string, string> = {
-        blue: 'bg-blue-100 text-blue-600',
-        yellow: 'bg-yellow-100 text-yellow-600',
-        orange: 'bg-orange-100 text-orange-600',
-        pink: 'bg-pink-100 text-pink-600',
-        red: 'bg-red-100 text-red-600',
-        gray: 'bg-gray-100 text-gray-600',
-        purple: 'bg-purple-100 text-purple-600',
-        green: 'bg-green-100 text-green-600',
+        blue: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+        yellow: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
+        orange: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
+        pink: 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400',
+        red: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+        gray: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+        purple: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
+        green: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
     };
+    const colorClass = colorStyles[config.color] || colorStyles.gray;
 
-    const colorClass = colorStyles[config.color] || colorStyles['gray'];
+    const ghostColorStyles: Record<string, string> = {
+        blue: 'rgba(37, 99, 235, 0.15)',
+        yellow: 'rgba(202, 138, 4, 0.15)',
+        orange: 'rgba(234, 88, 12, 0.15)',
+        pink: 'rgba(219, 39, 119, 0.15)',
+        red: 'rgba(220, 38, 38, 0.15)',
+        gray: 'rgba(75, 85, 99, 0.15)',
+        purple: 'rgba(147, 51, 234, 0.15)',
+        green: 'rgba(22, 163, 74, 0.15)',
+    };
+    const ghostOverlayColor = ghostColorStyles[config.color] || ghostColorStyles.gray;
+
+    const handleDragStart = useCallback(async (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+
+        const dragImgUrl = createDragImage(file.name, config.color);
+        
+        try {
+            // More robust base64 conversion
+            const res = await fetch(dragImgUrl);
+            const blob = await res.blob();
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            
+            // Save to cache file
+            const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+            const tmpFileName = `drag_ghost_${Date.now()}_${safeName}.png`;
+            await writeFile(tmpFileName, bytes, { baseDir: BaseDirectory.Cache });
+            
+            const cacheDirStr = await join(await invoke('plugin:path|get_app_cache_dir'), ''); 
+            // Better way to get path in v2 if path plugin is available, otherwise join works with strings
+            // Let's try to get the full path reliably
+            const fullPath = await join(await invoke('plugin:path|get_app_cache_dir') as string, tmpFileName);
+
+            const channel = new Channel();
+            channel.onmessage = () => {
+                setIsDragging(false);
+            };
+
+            await invoke('plugin:drag|start_drag', {
+                item: [file.path],
+                image: fullPath,
+                onEvent: channel,
+            });
+        } catch (err) {
+            console.error('Failed to start native drag:', err);
+            setIsDragging(false);
+        }
+    }, [file.path, file.name, config.color]);
 
     const formatSize = (bytes: number) => {
         if (bytes === 0) return '0 B';
@@ -64,87 +169,78 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
 
-    const formatDate = (ms: number) => {
-        return new Date(ms).toLocaleDateString(undefined, {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
-    };
+    const formatDate = (ms: number) =>
+        new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 
     return (
         <div
+            draggable
+            onDragStart={handleDragStart}
             onClick={onClick}
             className={clsx(
-                "group relative flex items-start p-4 cursor-pointer transition-all border-b border-gray-50 hover:bg-gray-50",
-                isSelected ? "bg-indigo-50/50 border-l-4 border-l-indigo-600" : "border-l-4 border-l-transparent pl-[calc(1rem+4px)]"
+                'group relative flex items-start p-4 cursor-pointer transition-all border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                isSelected
+                    ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-l-4 border-l-indigo-600 dark:border-l-indigo-500'
+                    : 'bg-white dark:bg-gray-900 border-l-4 border-l-transparent pl-[calc(1rem+4px)]',
             )}
         >
+            {/* Tinted overlay on source row while dragging, matching icon color accurately */}
+            {isDragging && (
+                <div 
+                    className="absolute inset-0 z-20 pointer-events-none rounded-sm border-2 border-dashed border-white/20" 
+                    style={{ backgroundColor: ghostOverlayColor }}
+                />
+            )}
+
             {/* File Icon Box */}
-            <div className={clsx(
-                "shrink-0 mr-4 h-12 w-12 rounded-xl flex items-center justify-center shadow-sm",
-                colorClass
-            )}>
+            <div className={clsx('shrink-0 mr-4 h-12 w-12 rounded-xl flex items-center justify-center shadow-sm', colorClass)}>
                 <Icon className="h-6 w-6" />
             </div>
 
             <div className="min-w-0 flex-1 space-y-1">
-                {/* Header: Name & Score */}
                 <div className="flex justify-between items-start">
-                    <h4 className={clsx(
-                        "text-base font-semibold truncate pr-8",
-                        isSelected ? "text-indigo-700" : "text-gray-900"
-                    )}>
+                    <h4 className={clsx('text-base font-semibold truncate pr-8', isSelected ? 'text-indigo-700 dark:text-indigo-400' : 'text-gray-900 dark:text-gray-100')}>
                         {file.name}
                     </h4>
                     {score !== undefined && (
-                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full shrink-0 border border-emerald-100 shadow-sm">
+                        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full shrink-0 border border-emerald-100 dark:border-emerald-800 shadow-sm">
                             {Math.min(Math.round(score * 100), 100)}% Match
                         </span>
                     )}
                 </div>
 
-                {/* Path */}
-                <p className="text-xs text-gray-400 truncate font-mono inline-block">
-                    {file.path}
-                </p>
+                <p className="text-xs text-gray-400 truncate font-mono inline-block">{file.path}</p>
 
-                {/* Metadata Row */}
-                <div className="flex items-center gap-3 text-xs text-gray-500 pt-1">
-                    <span className={clsx("font-bold text-[10px] px-1.5 py-0.5 rounded uppercase", colorClass.replace('bg-', 'bg-opacity-20 bg-'))}>
+                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 pt-1">
+                    <span className={clsx('font-bold text-[10px] px-1.5 py-0.5 rounded uppercase', colorClass.replace('bg-', 'bg-opacity-20 bg-'))}>
                         {config.label}
                     </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300" />
+                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
                     <span className="flex items-center gap-1">
-                        Size: <span className="font-medium text-gray-700">{formatSize(file.size)}</span>
+                        Size: <span className="font-medium text-gray-700 dark:text-gray-300">{formatSize(file.size)}</span>
                     </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300" />
+                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
                     <span className="flex items-center gap-1">
-                        Modified: <span className="font-medium text-gray-700">{formatDate(file.lastModified)}</span>
+                        Modified: <span className="font-medium text-gray-700 dark:text-gray-300">{formatDate(file.lastModified)}</span>
                     </span>
                 </div>
 
-                {/* Snippet (Optional: if we had snippet data) */}
                 {file.snippet && (
-                    <p className="text-sm text-gray-600 mt-2 line-clamp-2 leading-relaxed border-l-2 border-gray-200 pl-3 italic">
-                        "...{file.snippet}..."
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 line-clamp-2 leading-relaxed border-l-2 border-gray-200 dark:border-gray-700 pl-3 italic">
+                        &quot;...{file.snippet}...&quot;
                     </p>
                 )}
             </div>
 
-            {/* Actions: Star & Arrow */}
             <div className="flex flex-col items-end gap-2 ml-4">
                 <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleStar?.(e);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); onToggleStar?.(e); }}
                     className={clsx(
-                        "p-1.5 rounded-full transition-colors hover:bg-gray-200",
-                        file.isStarred ? "text-amber-400 fill-amber-400" : "text-gray-300 hover:text-gray-400"
+                        'p-1.5 rounded-full transition-colors hover:bg-gray-200 dark:hover:bg-gray-700',
+                        file.isStarred ? 'text-amber-400 fill-amber-400' : 'text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-400',
                     )}
                 >
-                    <Star className={clsx("h-5 w-5", file.isStarred && "fill-current")} />
+                    <Star className={clsx('h-5 w-5', file.isStarred && 'fill-current')} />
                 </button>
             </div>
         </div>
