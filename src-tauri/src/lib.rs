@@ -3,7 +3,7 @@ use walkdir::{DirEntry, WalkDir};
 use std::path::Path;
 use std::sync::Mutex;
 use notify::{Watcher, RecursiveMode, RecommendedWatcher};
-use tauri::{AppHandle, Manager, Emitter, State};
+use tauri::{AppHandle, Emitter, State};
 
 struct AppState {
     watcher: Mutex<Option<RecommendedWatcher>>,
@@ -15,7 +15,7 @@ struct FileEventPayload {
     path: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMetadata {
     path: String,
@@ -298,7 +298,6 @@ pub fn run() {
           .build(app)?;
 
       if cfg!(debug_assertions) {
-        #[cfg(feature = "log")]
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
             .level(log::LevelFilter::Info)
@@ -311,3 +310,4 @@ pub fn run() {
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
+
