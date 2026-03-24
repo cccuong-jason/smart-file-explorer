@@ -5,11 +5,22 @@
   "scripts": {
     "predev": "node scripts/download-model.mjs",
     "dev": "next dev --webpack",
+    "desktop:dev": "node scripts/desktop-dev.mjs",
+    "desktop:tauri": "node scripts/tauri-cli.mjs dev",
     "prebuild": "node scripts/download-model.mjs",
     "build": "next build --webpack",
+    "desktop:build": "node scripts/tauri-cli.mjs build",
     "start": "npx serve@latest out",
     "lint": "eslint",
-    "download-model": "node scripts/download-model.mjs"
+    "download-model": "node scripts/download-model.mjs",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:regression": "node --test tests/ui-i18n-theme.test.mjs",
+    "test:ui": "playwright test",
+    "test:desktop": "node scripts/desktop-smoke.mjs",
+    "test:ci": "npm run typecheck && npm run test:coverage && npm run test:regression && npm run test:ui",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -32,16 +43,24 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.1.18",
     "@tauri-apps/cli": "^2.10.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^4.1.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^29.0.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.1"
   }
 }

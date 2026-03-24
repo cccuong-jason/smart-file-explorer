@@ -25,6 +25,7 @@ import { FirstVisitTour } from '@/components/onboarding/first-visit-tour';
 import { useTranslation } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme-provider';
 import { FileGridItem } from '@/components/file-viewer/file-grid-item';
+import { extractUniqueTags, filterFiles, paginateFiles, sortFiles } from '@/lib/file-browser/utils';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -376,92 +377,14 @@ export default function Home() {
 
   // --- Filtering & Sorting ---
   const filteredAndSortedFiles = useMemo(() => {
-    let result = files.filter(f => {
-      // Type Filter
-      if (activeFilters.types.length > 0) {
-        const ext = '.' + f.name.split('.').pop()?.toLowerCase();
-        const isDoc = ['.pdf', '.docx', '.txt', '.md'].includes(ext);
-        const isCode = ['.js', '.ts', '.tsx', '.py', '.json', '.html', '.css', '.xml', '.yaml', '.yml'].includes(ext);
-        const isImage = ['.jpg', '.png', '.gif', '.svg'].includes(ext);
-
-        const matchesType = activeFilters.types.some(t => {
-          if (t === 'doc') return isDoc;
-          if (t === 'code') return isCode;
-          if (t === 'image') return isImage;
-          return true;
-        });
-        if (!matchesType) return false;
-      }
-
-      // Date Filter
-      if (activeFilters.date !== 'any') {
-        const fileDate = new Date(f.lastModified);
-        const now = new Date();
-        const diffTime = Math.abs(now.getTime() - fileDate.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (activeFilters.date === 'today' && diffDays > 1) return false;
-        if (activeFilters.date === 'week' && diffDays > 7) return false;
-        if (activeFilters.date === 'month' && diffDays > 30) return false;
-      }
-
-      // Size Filter
-      if (activeFilters.size.length > 0) {
-        const sizeKB = f.size / 1024;
-        const matchesSize = activeFilters.size.some(s => {
-          if (s === 'small') return sizeKB < 100; // < 100KB
-          if (s === 'medium') return sizeKB >= 100 && sizeKB < 1000; // 100KB - 1MB
-          if (s === 'large') return sizeKB >= 1000 && sizeKB < 100000; // 1MB - 100MB
-          if (s === 'huge') return sizeKB >= 100000; // > 100MB
-          return true;
-        });
-        if (!matchesSize) return false;
-      }
-
-      // Tag Filter
-      if (activeFilters.tags.length > 0) {
-        if (!f.tags || f.tags.length === 0) return false;
-        // Match ANY selected tag (OR logic)
-        const matchesTag = activeFilters.tags.some(t => f.tags.includes(t));
-        if (!matchesTag) return false;
-      }
-
-      // Favorites Filter
-      if (activeFilters.favorites) {
-        if (!f.isStarred) return false;
-      }
-
-      return true;
-    });
-
-    // Sorting
-    return result.sort((a, b) => {
-      let comparison = 0;
-      switch (sortBy) {
-        case 'relevance':
-          comparison = (a.score || 0) - (b.score || 0);
-          break;
-        case 'date':
-          comparison = (a.lastModified || 0) - (b.lastModified || 0);
-          break;
-        case 'size':
-          comparison = (a.size || 0) - (b.size || 0);
-          break;
-        case 'name':
-          comparison = a.name.localeCompare(b.name);
-          break;
-      }
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
-
+    return sortFiles(filterFiles(files, activeFilters), sortBy, sortOrder);
   }, [files, activeFilters, sortBy, sortOrder]);
 
   // Pagination
   useEffect(() => setCurrentPage(1), [filteredAndSortedFiles]);
 
   const paginatedFiles = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredAndSortedFiles.slice(start, start + ITEMS_PER_PAGE);
+    return paginateFiles(filteredAndSortedFiles, currentPage, ITEMS_PER_PAGE);
   }, [filteredAndSortedFiles, currentPage]);
 
   const totalPages = Math.ceil(filteredAndSortedFiles.length / ITEMS_PER_PAGE);
@@ -490,11 +413,7 @@ export default function Home() {
 
   // Extract unique tags
   const uniqueTags = useMemo(() => {
-    const tags = new Set<string>();
-    files.forEach(f => {
-      if (f.tags) f.tags.forEach((t: string) => tags.add(t));
-    });
-    return Array.from(tags).sort();
+    return extractUniqueTags(files);
   }, [files]);
 
   // --- Sub-components ---
