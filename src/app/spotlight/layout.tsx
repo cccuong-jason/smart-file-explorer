@@ -1,6 +1,6 @@
 // Dedicated layout for the Spotlight window — overrides body background to transparent
 // so that the OS shows through around the search card.
-export default function SpotlightLayout({ children }: { children: React.ReactNode }) {
+export default function SpotlightShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <style>{`

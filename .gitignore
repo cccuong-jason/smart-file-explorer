@@ -15,12 +15,14 @@
 /playwright-report
 /test-results
 
-# next.js
-/.next/
+# frontend build output
+/dist/
 /out/
 
 # production
 /build
+/.smart-file-explorer-workspaces/
+/.smart-file-explorer-build-workspaces/
 
 # AI model assets - downloaded at build time via scripts/download-model.mjs
 /public/models
@@ -38,12 +40,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # Agent
 .agent
+/.qodo/

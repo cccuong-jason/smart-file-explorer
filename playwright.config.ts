@@ -16,7 +16,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npx next dev --webpack --port 3001',
+    command: 'node scripts/ui-preview.mjs',
     url: 'http://127.0.0.1:3001',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
