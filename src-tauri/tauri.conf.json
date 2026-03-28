@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.smartfileexplorer.web",
   "build": {
-    "frontendDist": "../out",
-    "devUrl": "http://localhost:3000",
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:3000",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -22,7 +22,7 @@
       },
       {
         "label": "spotlight",
-        "url": "/spotlight",
+        "url": "/spotlight.html",
         "title": "Spotlight Search",
         "width": 640,
         "height": 480,

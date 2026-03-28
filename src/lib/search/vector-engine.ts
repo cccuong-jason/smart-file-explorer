@@ -3,11 +3,13 @@ import { pipeline, PipelineType } from '@xenova/transformers';
 // Configure Transformers.js to use local models
 import { env } from '@xenova/transformers';
 
-// Read from environment variables (set in .env.local or Vercel dashboard).
-// Fallback to safe production defaults if not set.
+const allowRemoteModels = import.meta.env.VITE_ALLOW_REMOTE_MODELS === 'true';
+const localModelPath = import.meta.env.VITE_MODEL_PATH ?? '/models/';
+
+// Read from frontend environment variables with safe local-first defaults.
 env.allowLocalModels = true;
-env.allowRemoteModels = process.env.NEXT_PUBLIC_ALLOW_REMOTE_MODELS === 'true';
-env.localModelPath = process.env.NEXT_PUBLIC_MODEL_PATH ?? '/models/';
+env.allowRemoteModels = allowRemoteModels;
+env.localModelPath = localModelPath;
 
 // Singleton to ensure model is loaded only once
 class EmbeddingPipeline {

@@ -5,7 +5,6 @@
  * into public/models/ so the app can run fully OFFLINE (no CDN required).
  *
  * This script runs automatically before every build via the "prebuild" npm hook.
- * Vercel runs "npm run build", which triggers "prebuild" first.
  *
  * Files are skipped (not re-downloaded) if they already exist and are non-empty,
  * so subsequent deployments re-use the cache.
@@ -57,7 +56,7 @@ async function download(url, dest, minValidSize = 100) {
 }
 
 async function main() {
-    console.log('🤖 Downloading AI model assets for offline use...');
+    console.log('Downloading AI model assets for offline use...');
     console.log(`   Model: Xenova/all-MiniLM-L6-v2`);
     console.log(`   Destination: public/models/\n`);
 
@@ -69,12 +68,12 @@ async function main() {
         const url = `${BASE_URL}/${file}`;
         const dest = path.join(MODEL_DIR, file);
 
-        process.stdout.write(`  ↓ ${file}... `);
+        process.stdout.write(`  - ${file}... `);
         try {
             await download(url, dest);
         } catch (err) {
             process.stdout.write(`\n`);
-            console.error(`  ✗ ERROR: ${err.message}`);
+            console.error(`  ERROR: ${err.message}`);
             process.exit(1);
         }
     }
@@ -83,7 +82,7 @@ async function main() {
     for (const file of OPTIONAL_FILES) {
         const url = `${BASE_URL}/${file}`;
         const dest = path.join(MODEL_DIR, file);
-        process.stdout.write(`  ↓ ${file} (optional)... `);
+        process.stdout.write(`  - ${file} (optional)... `);
         try {
             await download(url, dest, 1);
         } catch (err) {
@@ -97,12 +96,12 @@ async function main() {
                 process.stdout.write(`stubbed\n`);
             } else {
                 process.stdout.write(`\n`);
-                console.error(`  ⚠ Skipped optional file due to error: ${err.message}`);
+                console.error(`  Skipped optional file due to error: ${err.message}`);
             }
         }
     }
 
-    console.log(`\n✅ AI model assets ready!`);
+    console.log('\nAI model assets ready.');
 }
 
 main();

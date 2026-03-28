@@ -1,43 +1,36 @@
 # Smart File Explorer
 
-Smart File Explorer is a local-first file exploration experience built with Next.js and Tauri. It combines browser-based search and preview workflows with native desktop capabilities such as filesystem watching, global shortcuts, native file opening, and tray integration.
+Smart File Explorer is a local-first desktop application built with Tauri, Rust, React, and Vite. It focuses on fast local search, private indexing, native desktop workflows, and a polished file-browsing experience without depending on a Node runtime in the packaged app.
 
-The repository supports two main surfaces:
+The repository is maintained as a desktop-first product. The frontend-only commands are kept only as developer utilities for UI debugging and previewing.
 
-- A static web application built with Next.js.
-- A Tauri desktop application that wraps the web UI with native Rust-backed integrations.
+## Highlights
 
-## Features
+- Local file scanning and indexing
+- Keyword and semantic search powered by Transformers.js
+- Native desktop integrations for shortcuts, drag and drop, and file opening
+- Main window and Spotlight-style search window
+- Theme and language switching
+- Unit, UI, regression, and desktop test coverage
 
-- Local-first file scanning and indexing.
-- Keyword search and semantic search powered by Transformers.js.
-- Desktop integrations for file watching, tray actions, and native file open.
-- File metadata inspection and preview-oriented workflows.
-- Privacy-focused design: data stays on the local machine.
-- Automated unit, UI, regression, and desktop test coverage.
+## Stack
 
-## Tech Stack
-
-- Frontend: Next.js 16, React 19, TypeScript, Tailwind CSS.
-- Desktop shell: Tauri 2 with Rust.
-- Search and storage: Fuse.js, IndexedDB, Transformers.js.
-- Testing: Vitest, Playwright, Node test runner, Cargo test.
-- Packaging and deployment: static web export, Docker, Tauri bundling.
+- Frontend: React 19, TypeScript, Vite, Tailwind CSS
+- Desktop shell: Tauri 2, Rust
+- Search and storage: Fuse.js, IndexedDB, Transformers.js
+- Testing: Vitest, Playwright, Node test runner, Cargo test
 
 ## Repository Layout
 
 ```text
 .
-|-- src/                    Next.js application source
-|-- src-tauri/              Tauri application, Rust commands, desktop config
-|-- public/                 Static assets and downloaded model files
-|-- scripts/                Local automation helpers for model download and desktop launch
-|-- tests/                  Unit, UI, regression, and test setup files
-|-- .github/workflows/      CI workflows
-|-- Dockerfile              Web image definition
-|-- docker-compose.yml      Local web container orchestration
-|-- Makefile                Cross-platform development shortcuts
-`-- README.md               Project documentation
+|-- src/               Desktop frontend source
+|-- src-tauri/         Tauri application and Rust commands
+|-- public/            Static assets and downloaded model files
+|-- scripts/           Build, launch, preview, and trusted-workspace helpers
+|-- tests/             Unit, UI, regression, and setup files
+|-- Makefile           Cross-platform developer commands
+`-- README.md          Project documentation
 ```
 
 ## Requirements
@@ -51,93 +44,63 @@ The repository supports two main surfaces:
 ### Desktop prerequisites by OS
 
 - Windows
-  WebView2 and Microsoft C++ build tools are required for Tauri desktop development. The official Tauri prerequisites page covers the Windows setup.
+  Install WebView2 and Visual Studio Build Tools with the C++ workload.
 - macOS
-  Xcode Command Line Tools are required for desktop builds.
+  Install Xcode Command Line Tools.
 - Linux
-  Desktop builds require WebKitGTK and related native packages. Package names vary by distribution.
+  Install WebKitGTK and the native Tauri desktop dependencies required by your distribution.
 
 Official reference:
 
 - Tauri prerequisites: https://v2.tauri.app/start/prerequisites/
 - Tauri webview runtimes: https://v2.tauri.app/reference/webview-versions/
 
-## Quick Start
-
-### With Make
+## Canonical Commands
 
 ```bash
-make bootstrap
-make dev-web
+make dev
+make build
+make production
 ```
 
-For the desktop app:
+- `make dev`
+  Starts desktop development. It installs missing Node dependencies, downloads local model assets if needed, detects the operating system, and launches the trusted-path Tauri developer flow.
+- `make build`
+  Builds the desktop frontend assets and the desktop release binary.
+- `make production`
+  Builds the production desktop bundle or installer.
 
-```bash
-make dev-desktop
-```
+## Advanced Commands
 
-### Without Make
-
-```bash
-npm ci
-npm run download-model
-npm run dev
-```
-
-For the desktop app:
-
-```bash
-npm run desktop:dev
-```
-
-## Local Development
-
-### Web application
-
-Start the Next.js development server:
+### Development Helpers
 
 ```bash
 make dev-web
-```
-
-The app will be available at `http://localhost:3000`.
-
-### Desktop application
-
-Start the cross-platform desktop launcher:
-
-```bash
 make dev-desktop
 ```
 
-This launcher is the recommended default because it handles the Windows untrusted mount-point issue by copying `src-tauri` into a trusted temporary workspace before starting the Rust side.
+- `make dev-web`
+  Starts the Vite frontend development server only for UI debugging. This is not a production target.
+- `make dev-desktop`
+  Starts the trusted desktop launcher directly.
 
-If your machine does not need that workaround and you want the direct Tauri CLI flow, use:
-
-```bash
-make dev-desktop-native
-```
-
-### Build locally
-
-Build the web export:
+### Build and Preview Helpers
 
 ```bash
 make build-web
-```
-
-Build the desktop application bundle:
-
-```bash
 make build-desktop
-```
-
-Preview the exported web app:
-
-```bash
+make build-desktop-bundle
 make preview
 ```
+
+- `make build-web`
+  Builds static frontend assets into `dist/`.
+- `make build-desktop`
+  Builds the desktop release binary in a trusted workspace.
+- `make build-desktop-bundle`
+  Builds the desktop bundle or installer in a trusted workspace.
+- `make preview`
+  Serves the built frontend assets from `dist/` for UI checks.
 
 ## Testing and Quality
 
@@ -147,7 +110,7 @@ Install the Playwright browser once before running UI tests locally:
 make install-playwright
 ```
 
-Available quality and test commands:
+Available checks:
 
 ```bash
 make lint
@@ -161,47 +124,15 @@ make test-ci
 make check
 ```
 
-## Docker
-
-The repository includes a Docker setup for the web build only. It does not package the Tauri desktop shell.
-
-Build and run the web container:
-
-```bash
-make docker-up
-```
-
-Stop containers:
-
-```bash
-make docker-down
-```
-
-## CI
-
-The GitHub Actions pipeline in `.github/workflows/test-pipeline.yml` currently runs:
-
-- TypeScript type-checking
-- Vitest coverage tests
-- Regression tests
-- Playwright UI smoke tests
-- Windows desktop Rust tests
-
 ## Troubleshooting
 
-### Windows desktop launch and untrusted mount points
+### Windows untrusted mount points
 
-If `tauri dev` or `cargo metadata` fails with an untrusted mount-point error, use:
-
-```bash
-make dev-desktop
-```
-
-That path uses `scripts/desktop-dev.mjs` and avoids the direct Tauri workspace lookup that can fail on redirected, mounted, or junctioned paths.
+Desktop launch, build, and bundle commands use trusted workspace copies on Windows so they can still work when the repository itself lives on a redirected or mounted path.
 
 ### Local model files
 
-Model files are downloaded into `public/models` by `scripts/download-model.mjs`. They are ignored by Git and can be refreshed with:
+Model files are downloaded into `public/models` by `scripts/download-model.mjs`. Refresh them with:
 
 ```bash
 make model
@@ -209,19 +140,4 @@ make model
 
 ### Make on Windows
 
-The `Makefile` is cross-platform in command content, but Windows does not ship `make` by default. On Windows, use one of these:
-
-- Git Bash with `make`
-- WSL
-- MSYS2 or `mingw32-make`
-- The underlying `npm run ...` commands directly
-
-## Additional Project Documents
-
-- `PRD.md`
-- `NEXTJS_TECHNICAL_FEASIBILITY.md`
-- `WEB_MIGRATION_FEASIBILITY_ANALYSIS.md`
-
-## License
-
-This repository does not currently include a license file.
+Windows does not ship `make` by default. Use Git Bash, WSL, or another environment that provides `make`, or run the underlying `npm` and `node` commands directly.

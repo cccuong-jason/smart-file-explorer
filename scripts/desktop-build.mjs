@@ -9,7 +9,7 @@ const ROOT = path.resolve(__dirname, '..');
 const SRC_TAURI_DIR = path.join(ROOT, 'src-tauri');
 const TRUSTED_WORKSPACE_ROOT = getTrustedWorkspaceRoot(ROOT);
 const RUN_ID = `${Date.now()}-${process.pid}`;
-const TEMP_ROOT = path.join(TRUSTED_WORKSPACE_ROOT, `tauri-smoke-${RUN_ID}`);
+const TEMP_ROOT = path.join(TRUSTED_WORKSPACE_ROOT, `tauri-build-${RUN_ID}`);
 const TEMP_TAURI_DIR = path.join(TEMP_ROOT, 'src-tauri');
 const TEMP_TARGET_DIR = path.join(TEMP_ROOT, 'target');
 
@@ -30,9 +30,10 @@ async function copyDir(source, target) {
 }
 
 function spawnLogged(command, args, options) {
-  const useShell = process.platform === 'win32' && (/(\.cmd|\.bat)$/i.test(command) || options?.shell === true);
+  const useShell =
+    process.platform === 'win32' && (/\.(cmd|bat)$/i.test(command) || options?.shell === true);
 
-  return useShell
+  const child = useShell
     ? spawn(
         `"${command}" ${args.map((arg) => (arg.includes(' ') ? `"${arg}"` : arg)).join(' ')}`,
         [],
@@ -46,6 +47,12 @@ function spawnLogged(command, args, options) {
         stdio: 'inherit',
         ...options,
       });
+
+  child.on('error', (error) => {
+    console.error(error);
+  });
+
+  return child;
 }
 
 function waitForExit(child) {
@@ -63,14 +70,14 @@ function waitForExit(child) {
 }
 
 async function main() {
-  console.log(`Preparing trusted Tauri smoke workspace at ${TEMP_TAURI_DIR}`);
+  console.log(`Preparing trusted Tauri build workspace at ${TEMP_TAURI_DIR}`);
   await resetDir(TEMP_TAURI_DIR);
   await copyDir(SRC_TAURI_DIR, TEMP_TAURI_DIR);
 
   const cargoCommand = getCargoCommand();
   const rustToolEnv = getRustToolEnv();
 
-  const child = spawnLogged(cargoCommand, ['test'], {
+  const child = spawnLogged(cargoCommand, ['build', '--release'], {
     cwd: TEMP_TAURI_DIR,
     env: {
       ...process.env,
@@ -80,6 +87,7 @@ async function main() {
   });
 
   await waitForExit(child);
+  console.log(`Release artifacts are available under ${path.join(TEMP_TARGET_DIR, 'release')}`);
 }
 
 main().catch((error) => {
