@@ -88,6 +88,10 @@ describe('file browser utils', () => {
     expect(filterFiles(files, { ...defaultFilters, favorites: true }, new Date(now))).toEqual([files[0]]);
   });
 
+  it('ignores unsupported size filters instead of dropping valid files', () => {
+    expect(filterFiles(files, { ...defaultFilters, size: ['custom'] }, new Date(now))).toEqual(files);
+  });
+
   it('sorts files by relevance, date, size, and name', () => {
     expect(sortFiles(files, 'relevance', 'desc')[0]?.path).toBe('/docs/spec.md');
     expect(sortFiles(files, 'name', 'asc')[0]?.path).toBe('/code/app.ts');

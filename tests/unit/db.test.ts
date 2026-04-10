@@ -17,6 +17,7 @@ import {
   toggleFileStar,
   addFileTag,
   deleteFile,
+  deleteWorkspaceAiSummary,
 } from '@/lib/file-system/db';
 
 const saveMock = vi.mocked(save);
@@ -154,6 +155,20 @@ describe('file database operations', () => {
       workspaceId: 'workspace-1',
       fingerprint: 'fp-1',
       model: 'qwen/qwen3.6-plus:free',
+    });
+
+    await deleteWorkspaceAiSummary('workspace-1');
+    await expect(getWorkspaceAiSummary('workspace-1')).resolves.toBeUndefined();
+
+    await storeWorkspaceAiSummary({
+      workspaceId: 'workspace-1',
+      fingerprint: 'fp-1',
+      title: 'Acme Renewal Workspace',
+      summary: 'The proposal and pricing workbook are driving this renewal.',
+      highlights: ['Proposal-final.docx is the decision-driving document.'],
+      rationale: ['Latest proposal is starred and recently updated.'],
+      model: 'qwen/qwen3.6-plus:free',
+      updatedAt: 123456,
     });
 
     await clearDatabase();
