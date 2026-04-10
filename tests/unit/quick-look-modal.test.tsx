@@ -1,15 +1,17 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { QuickLookModal } from '@/components/file-viewer/quick-look-modal';
 import { I18nProvider } from '@/lib/i18n';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
+  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
 }));
 
 const invokeMock = vi.mocked(invoke);
+const convertFileSrcMock = vi.mocked(convertFileSrc);
 
 const file = {
   path: '/docs/spec.md',
@@ -22,6 +24,7 @@ const file = {
 describe('QuickLookModal', () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    convertFileSrcMock.mockClear();
     localStorage.clear();
   });
 
@@ -98,6 +101,22 @@ describe('QuickLookModal', () => {
     );
 
     expect(screen.getByText('Không thể xem trước')).toBeInTheDocument();
+  });
+
+  it('renders an image preview for image files', () => {
+    render(
+      <I18nProvider>
+        <QuickLookModal
+          isOpen
+          onClose={() => undefined}
+          file={{ ...file, name: 'hero.png', path: '/images/hero.png', content: '' }}
+        />
+      </I18nProvider>
+    );
+
+    const image = screen.getByRole('img', { name: /hero\.png/i });
+    expect(image).toHaveAttribute('src', 'asset:///images/hero.png');
+    expect(convertFileSrcMock).toHaveBeenCalledWith('/images/hero.png');
   });
 
   it('keeps the modal open when native open fails', async () => {

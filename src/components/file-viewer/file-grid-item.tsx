@@ -4,6 +4,8 @@ import { clsx } from 'clsx';
 import { invoke, Channel } from '@tauri-apps/api/core';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { tempDir, join } from '@tauri-apps/api/path';
+import { useTranslation } from '@/lib/i18n';
+import { getMatchPercentage } from '@/lib/search/presentation';
 
 interface FileGridItemProps {
     file: any;
@@ -88,6 +90,7 @@ function createDragImage(fileName: string, color: string): string {
 }
 
 export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }: FileGridItemProps) {
+    const { t } = useTranslation();
     const ext = file.name.split('.').pop()?.toLowerCase() || 'txt';
     const config = FILE_TYPE_CONFIG[ext] || { icon: FileText, color: 'gray', label: ext.toUpperCase() };
     const Icon = config.icon;
@@ -181,7 +184,7 @@ export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }:
             <div className="flex justify-between items-start mb-2 w-full">
                 {score !== undefined ? (
                     <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full shrink-0 border border-emerald-100 dark:border-emerald-800 shadow-sm">
-                        {Math.min(Math.round(score * 100), 100)}% Match
+                        {getMatchPercentage(score)}%
                     </span>
                 ) : <span />}
 
@@ -216,6 +219,11 @@ export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }:
                     <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
                     <span>{formatSize(file.size)}</span>
                 </div>
+                {file.isLikelyLatest && (
+                    <p className="text-[11px] text-center font-medium text-indigo-700 dark:text-indigo-300 mt-2">
+                        {t('likely_latest_version')}
+                    </p>
+                )}
             </div>
         </div>
     );

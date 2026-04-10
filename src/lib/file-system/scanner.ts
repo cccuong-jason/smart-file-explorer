@@ -1,6 +1,9 @@
-import { storeFile, getFile } from './db';
-import { generateEmbedding } from '../search/vector-engine';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { storeFile, getFile, storeFileChunks, type FileChunk, type FileMetadata } from './db';
+import { generateEmbeddingInBackground } from '../search/embedding-engine';
+import { averageEmbeddings, splitTextIntoChunks } from '../search/chunking';
+import { invoke } from '@tauri-apps/api/core';
+import { classifyFile } from '../file-browser/classification';
+import { runLocalOcr } from '../ocr/ocr-engine';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit for content extraction
 
@@ -12,66 +15,242 @@ export interface TauriFileMetadata {
     lastModified: number;
 }
 
-export async function processFile(metadata: TauriFileMetadata) {
-    const existing = await getFile(metadata.path);
-    if (existing && existing.lastModified === metadata.lastModified && existing.processingStatus === 'completed') {
-        return; // Skip if unmodified
-    }
+interface ExtractedSegment {
+    text: string;
+    pageNumber?: number;
+    sourceLabel?: string;
+}
 
+interface ProcessFileOptions {
+    skipInitialStage?: boolean;
+    onFileUpdated?: (file: FileMetadata) => void;
+}
+
+function shouldRecommendOcr(fileName: string) {
+    const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+    return ['pdf', 'png', 'jpg', 'jpeg'].includes(ext);
+}
+
+function buildBaseFileRecord(metadata: TauriFileMetadata, existing?: FileMetadata): FileMetadata {
     const { path, name, size, type, lastModified } = metadata;
-    const isDocx = name.endsWith('.docx');
+    const classification = classifyFile(name);
 
-    const dbMeta = {
+    return {
         path,
         name,
         size,
         type: type || 'application/octet-stream',
         lastModified,
+        group: classification.group,
+        subtype: classification.subtype,
         tags: existing?.tags || [],
         isStarred: existing?.isStarred || false,
-        processingStatus: 'pending' as const
+        processingStatus: 'pending',
+        indexingStage: 'metadata',
+    };
+}
+
+async function emitFileUpdate(file: FileMetadata, onFileUpdated?: (file: FileMetadata) => void) {
+    await storeFile(file);
+    onFileUpdated?.(file);
+}
+
+function buildStoredChunks(path: string, segments: ExtractedSegment[]) {
+    const storedChunks: FileChunk[] = [];
+    let chunkIndex = 0;
+
+    for (const segment of segments) {
+        const textChunks = splitTextIntoChunks(segment.text);
+        for (const chunk of textChunks) {
+            storedChunks.push({
+                id: `${path}::${chunkIndex}`,
+                filePath: path,
+                index: chunkIndex,
+                text: chunk.text,
+                pageNumber: segment.pageNumber,
+                sourceLabel: segment.sourceLabel,
+            });
+            chunkIndex += 1;
+        }
+    }
+
+    return storedChunks;
+}
+
+async function finalizeExtractedContent(
+    dbMeta: FileMetadata,
+    path: string,
+    name: string,
+    segments: ExtractedSegment[],
+    options: ProcessFileOptions = {},
+    ocrStatus?: FileMetadata['ocrStatus']
+) {
+    const content = segments.map((segment) => segment.text).join('\n\n').trim();
+    if (!content) {
+        return false;
+    }
+
+    const storedChunks = buildStoredChunks(path, segments);
+    const chunkEmbeddings: number[][] = [];
+
+    await storeFileChunks(path, storedChunks);
+
+    await emitFileUpdate(
+        {
+            ...dbMeta,
+            content,
+            ocrStatus,
+            processingStatus: 'processing',
+            indexingStage: 'content',
+        },
+        options.onFileUpdated
+    );
+
+    for (const chunk of storedChunks) {
+        try {
+            chunk.embedding = await generateEmbeddingInBackground(chunk.text);
+            if (chunk.embedding) {
+                chunkEmbeddings.push(chunk.embedding);
+            }
+        } catch (err) {
+            console.warn(`Chunk embedding failed for ${name}#${chunk.index}:`, err);
+        }
+    }
+
+    await storeFileChunks(path, storedChunks);
+
+    const embedding = averageEmbeddings(chunkEmbeddings);
+
+    await emitFileUpdate({
+        ...dbMeta,
+        content,
+        embedding,
+        ocrStatus,
+        processingStatus: 'completed',
+        indexingStage: 'semantic',
+    }, options.onFileUpdated);
+
+    return true;
+}
+
+export async function stageFileForIndexing(metadata: TauriFileMetadata) {
+    const existing = await getFile(metadata.path);
+    const baseFile = buildBaseFileRecord(metadata, existing);
+    const stagedFile: FileMetadata = {
+        ...baseFile,
+        processingStatus: 'processing',
+        indexingStage: 'metadata',
     };
 
-    await storeFile(dbMeta);
+    await storeFile(stagedFile);
+    return stagedFile;
+}
 
-    if (size > MAX_FILE_SIZE) {
-        await storeFile({ ...dbMeta, processingStatus: 'completed' });
+function shouldSkipProcessing(existing: FileMetadata | undefined, metadata: TauriFileMetadata) {
+    return existing
+        && existing.lastModified === metadata.lastModified
+        && existing.processingStatus === 'completed';
+}
+
+export async function processFile(metadata: TauriFileMetadata, options: ProcessFileOptions = {}) {
+    const existing = await getFile(metadata.path);
+    if (shouldSkipProcessing(existing, metadata)) {
+        return;
+    }
+
+    const { path, name } = metadata;
+    const dbMeta = buildBaseFileRecord(metadata, existing);
+
+    if (!options.skipInitialStage) {
+        await emitFileUpdate(
+            {
+                ...dbMeta,
+                processingStatus: 'processing',
+                indexingStage: 'metadata',
+            },
+            options.onFileUpdated
+        );
+    }
+
+    if (metadata.size > MAX_FILE_SIZE) {
+        await storeFileChunks(path, []);
+        await emitFileUpdate(
+            {
+                ...dbMeta,
+                processingStatus: 'completed',
+                indexingStage: 'metadata',
+            },
+            options.onFileUpdated
+        );
         return;
     }
 
     try {
-        let content = '';
+        const segments = await invoke<ExtractedSegment[]>('extract_document_segments', { path });
+        const hasNativeContent = await finalizeExtractedContent(dbMeta, path, name, segments, options);
 
-        const contentBytes = await readFile(path);
-
-        if (!isDocx) {
-            const decoder = new TextDecoder('utf-8');
-            content = decoder.decode(contentBytes);
-        } else {
-            // Mammoth requires an array buffer; Uint8Array can be used if converted.
-            // Just skipping docx parsing for the MVP migration.
-            content = "DocX preview requires native plugin support for extraction.";
+        if (hasNativeContent) {
+            return;
         }
 
-        if (content) {
-            let embedding: number[] | undefined;
-            try {
-                embedding = await generateEmbedding(content.slice(0, 1000));
-            } catch (err) {
-                console.warn(`Embedding failed for ${name}:`, err);
-            }
-
-            await storeFile({
+        if (shouldRecommendOcr(name)) {
+            await emitFileUpdate({
                 ...dbMeta,
-                content,
-                embedding,
-                processingStatus: 'completed'
-            });
-        } else {
-            await storeFile({ ...dbMeta, processingStatus: 'completed' });
+                ocrStatus: 'processing',
+                processingStatus: 'processing',
+                indexingStage: 'metadata',
+            }, options.onFileUpdated);
+
+            try {
+                const ocrSegments = await runLocalOcr(path, name);
+                const hasOcrContent = await finalizeExtractedContent(
+                    dbMeta,
+                    path,
+                    name,
+                    ocrSegments,
+                    options,
+                    'completed'
+                );
+
+                if (hasOcrContent) {
+                    return;
+                }
+
+                await storeFileChunks(path, []);
+                await emitFileUpdate({
+                    ...dbMeta,
+                    ocrStatus: 'recommended',
+                    processingStatus: 'completed',
+                    indexingStage: 'metadata',
+                }, options.onFileUpdated);
+                return;
+            } catch (ocrError) {
+                console.warn(`OCR failed for ${name}:`, ocrError);
+                await storeFileChunks(path, []);
+                await emitFileUpdate({
+                    ...dbMeta,
+                    ocrStatus: 'failed',
+                    processingStatus: 'completed',
+                    indexingStage: 'metadata',
+                }, options.onFileUpdated);
+                return;
+            }
         }
+
+        await storeFileChunks(path, []);
+        await emitFileUpdate({
+            ...dbMeta,
+            ocrStatus: undefined,
+            processingStatus: 'completed',
+            indexingStage: 'metadata',
+        }, options.onFileUpdated);
     } catch (error) {
         console.error(`Error processing file ${name}:`, error);
-        await storeFile({ ...dbMeta, processingStatus: 'failed' });
+        await storeFileChunks(path, []);
+        await emitFileUpdate({
+            ...dbMeta,
+            processingStatus: 'failed',
+            indexingStage: 'failed',
+        }, options.onFileUpdated);
     }
 }

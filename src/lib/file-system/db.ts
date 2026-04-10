@@ -1,9 +1,15 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
+import type { FileClassification } from '../file-browser/classification';
 
-interface FileMetadata {
+export type FileIndexingStage = 'metadata' | 'content' | 'semantic' | 'failed';
+export type OcrStatus = 'recommended' | 'processing' | 'completed' | 'failed';
+
+export interface FileMetadata extends FileClassification {
     processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
+    ocrStatus?: OcrStatus;
+    indexingStage?: FileIndexingStage;
     path: string;
     name: string;
     size: number;
@@ -15,16 +21,46 @@ interface FileMetadata {
     isStarred?: boolean;
 }
 
+export interface FileChunk {
+    id: string;
+    filePath: string;
+    index: number;
+    text: string;
+    embedding?: number[];
+    pageNumber?: number;
+    sourceLabel?: string;
+}
+
+export interface WorkspaceAiSummaryRecord {
+    workspaceId: string;
+    fingerprint: string;
+    title?: string;
+    summary: string;
+    highlights: string[];
+    rationale: string[];
+    model: string;
+    updatedAt: number;
+}
+
 interface SmartFileExplorerDB extends DBSchema {
     files: {
         key: string;
         value: FileMetadata;
         indexes: { 'by-name': string; 'by-starred': number; 'by-tags': string[] };
     };
+    chunks: {
+        key: string;
+        value: FileChunk;
+        indexes: { 'by-file-path': string; 'by-file-path-and-index': [string, number] };
+    };
+    workspaceAiSummaries: {
+        key: string;
+        value: WorkspaceAiSummaryRecord;
+    };
 }
 
 const DB_NAME = 'smart-file-explorer-db';
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 
 let dbPromise: Promise<IDBPDatabase<SmartFileExplorerDB>>;
 
@@ -43,6 +79,14 @@ export const getDB = () => {
                 if (oldVersion < 3) {
                     const store = transaction.objectStore('files');
                     store.createIndex('by-tags', 'tags', { multiEntry: true });
+                }
+                if (oldVersion < 4) {
+                    const chunkStore = db.createObjectStore('chunks', { keyPath: 'id' });
+                    chunkStore.createIndex('by-file-path', 'filePath');
+                    chunkStore.createIndex('by-file-path-and-index', ['filePath', 'index']);
+                }
+                if (oldVersion < 5) {
+                    db.createObjectStore('workspaceAiSummaries', { keyPath: 'workspaceId' });
                 }
             },
         });
@@ -63,6 +107,55 @@ export const getFile = async (path: string) => {
 export const getAllFiles = async () => {
     const db = await getDB();
     return db.getAll('files');
+};
+
+export const getOcrCandidateCount = async () => {
+    const db = await getDB();
+    const files = await db.getAll('files');
+    return files.filter((file) => ['recommended', 'processing', 'failed'].includes(file.ocrStatus ?? '')).length;
+};
+
+export const storeFileChunks = async (filePath: string, chunks: FileChunk[]) => {
+    const db = await getDB();
+    const tx = db.transaction('chunks', 'readwrite');
+    const index = tx.store.index('by-file-path');
+    let cursor = await index.openCursor(IDBKeyRange.only(filePath));
+
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+
+    for (const chunk of chunks) {
+        await tx.store.put(chunk);
+    }
+
+    await tx.done;
+};
+
+export const getFileChunks = async (filePath: string) => {
+    const db = await getDB();
+    return db.getAllFromIndex('chunks', 'by-file-path', filePath);
+};
+
+export const getAllChunks = async () => {
+    const db = await getDB();
+    return db.getAll('chunks');
+};
+
+export const storeWorkspaceAiSummary = async (summary: WorkspaceAiSummaryRecord) => {
+    const db = await getDB();
+    await db.put('workspaceAiSummaries', summary);
+};
+
+export const getWorkspaceAiSummary = async (workspaceId: string) => {
+    const db = await getDB();
+    return db.get('workspaceAiSummaries', workspaceId);
+};
+
+export const deleteWorkspaceAiSummary = async (workspaceId: string) => {
+    const db = await getDB();
+    await db.delete('workspaceAiSummaries', workspaceId);
 };
 
 export const toggleFileStar = async (path: string) => {
@@ -124,9 +217,21 @@ export const exportIndexToJSON = async () => {
 export const clearDatabase = async () => {
     const db = await getDB();
     await db.clear('files');
+    await db.clear('chunks');
+    await db.clear('workspaceAiSummaries');
 }
 
 export const deleteFile = async (path: string) => {
     const db = await getDB();
-    await db.delete('files', path);
+    const tx = db.transaction(['files', 'chunks'], 'readwrite');
+    await tx.objectStore('files').delete(path);
+
+    const chunkIndex = tx.objectStore('chunks').index('by-file-path');
+    let cursor = await chunkIndex.openCursor(IDBKeyRange.only(path));
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+
+    await tx.done;
 }

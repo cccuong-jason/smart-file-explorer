@@ -22,6 +22,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 
 vi.mock('@tauri-apps/plugin-fs', () => ({
   writeTextFile: vi.fn(),
+  readFile: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
