@@ -1,3 +1,10 @@
+import {
+  matchesFileTypeSelection,
+  type FileTypeFilterId,
+  type FileTypeGroup,
+  type FileTypeSubtype,
+} from './classification';
+
 export interface BrowserFileRecord {
   path: string;
   name: string;
@@ -6,10 +13,12 @@ export interface BrowserFileRecord {
   tags?: string[];
   isStarred?: boolean;
   score?: number;
+  group?: FileTypeGroup;
+  subtype?: FileTypeSubtype;
 }
 
 export interface BrowserFilters {
-  types: string[];
+  types: FileTypeFilterId[];
   date: string;
   size: string[];
   tags: string[];
@@ -19,26 +28,10 @@ export interface BrowserFilters {
 export type SortBy = 'date' | 'size' | 'name' | 'relevance';
 export type SortOrder = 'asc' | 'desc';
 
-function getExtension(name: string) {
-  return `.${name.split('.').pop()?.toLowerCase()}`;
-}
-
 export function filterFiles(files: BrowserFileRecord[], filters: BrowserFilters, now = new Date()) {
   return files.filter((file) => {
-    const ext = getExtension(file.name);
-
     if (filters.types.length > 0) {
-      const isDoc = ['.pdf', '.docx', '.txt', '.md'].includes(ext);
-      const isCode = ['.js', '.ts', '.tsx', '.py', '.json', '.html', '.css', '.xml', '.yaml', '.yml'].includes(ext);
-      const isImage = ['.jpg', '.png', '.gif', '.svg'].includes(ext);
-      const matchesType = filters.types.some((type) => {
-        if (type === 'doc') return isDoc;
-        if (type === 'code') return isCode;
-        if (type === 'image') return isImage;
-        return true;
-      });
-
-      if (!matchesType) {
+      if (!matchesFileTypeSelection(file.name, filters.types)) {
         return false;
       }
     }

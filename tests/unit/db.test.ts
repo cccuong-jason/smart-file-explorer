@@ -5,12 +5,19 @@ import {
   clearDatabase,
   exportIndexToJSON,
   getAllFiles,
+  getAllChunks,
+  getOcrCandidateCount,
+  getWorkspaceAiSummary,
+  getFileChunks,
   getFile,
   removeFileTag,
+  storeWorkspaceAiSummary,
   storeFile,
+  storeFileChunks,
   toggleFileStar,
   addFileTag,
   deleteFile,
+  deleteWorkspaceAiSummary,
 } from '@/lib/file-system/db';
 
 const saveMock = vi.mocked(save);
@@ -18,16 +25,36 @@ const writeTextFileMock = vi.mocked(writeTextFile);
 
 const sampleFile = {
   processingStatus: 'completed' as const,
+  indexingStage: 'semantic' as const,
   path: '/docs/spec.md',
   name: 'spec.md',
   size: 1024,
   type: 'text/markdown',
   lastModified: 123456,
+  group: 'documents' as const,
+  subtype: 'text' as const,
   content: '# spec',
   embedding: [1, 0, 0],
   tags: [],
   isStarred: false,
 };
+
+const sampleChunks = [
+  {
+    id: `${sampleFile.path}::0`,
+    filePath: sampleFile.path,
+    index: 0,
+    text: 'Acme proposal with pricing',
+    embedding: [1, 0, 0],
+  },
+  {
+    id: `${sampleFile.path}::1`,
+    filePath: sampleFile.path,
+    index: 1,
+    text: 'Final scope and timeline',
+    embedding: [0.7, 0.3, 0],
+  },
+];
 
 describe('file database operations', () => {
   beforeEach(async () => {
@@ -81,11 +108,71 @@ describe('file database operations', () => {
 
   it('clears and deletes files safely', async () => {
     await storeFile(sampleFile);
+    await storeFileChunks(sampleFile.path, sampleChunks);
     await deleteFile(sampleFile.path);
     await expect(getAllFiles()).resolves.toEqual([]);
+    await expect(getFileChunks(sampleFile.path)).resolves.toEqual([]);
 
     await storeFile(sampleFile);
+    await storeFileChunks(sampleFile.path, sampleChunks);
     await clearDatabase();
     await expect(getAllFiles()).resolves.toEqual([]);
+    await expect(getAllChunks()).resolves.toEqual([]);
+  });
+
+  it('stores and replaces chunks for a file', async () => {
+    await storeFileChunks(sampleFile.path, sampleChunks);
+    await expect(getFileChunks(sampleFile.path)).resolves.toHaveLength(2);
+
+    await storeFileChunks(sampleFile.path, [sampleChunks[0]]);
+
+    await expect(getFileChunks(sampleFile.path)).resolves.toEqual([sampleChunks[0]]);
+  });
+
+  it('counts files that are waiting on OCR', async () => {
+    await storeFile({ ...sampleFile, path: '/docs/scan1.pdf', ocrStatus: 'recommended' });
+    await storeFile({ ...sampleFile, path: '/docs/scan2.png', ocrStatus: 'recommended' });
+    await storeFile({ ...sampleFile, path: '/docs/scan3.pdf', ocrStatus: 'processing' as any });
+    await storeFile({ ...sampleFile, path: '/docs/scan4.pdf', ocrStatus: 'completed' as any });
+    await storeFile({ ...sampleFile, path: '/docs/notes.md' });
+
+    await expect(getOcrCandidateCount()).resolves.toBe(3);
+  });
+
+  it('stores and clears cached workspace AI summaries', async () => {
+    await storeWorkspaceAiSummary({
+      workspaceId: 'workspace-1',
+      fingerprint: 'fp-1',
+      title: 'Acme Renewal Workspace',
+      summary: 'The proposal and pricing workbook are driving this renewal.',
+      highlights: ['Proposal-final.docx is the decision-driving document.'],
+      rationale: ['Latest proposal is starred and recently updated.'],
+      model: 'qwen/qwen3.6-plus:free',
+      updatedAt: 123456,
+    });
+
+    await expect(getWorkspaceAiSummary('workspace-1')).resolves.toMatchObject({
+      workspaceId: 'workspace-1',
+      fingerprint: 'fp-1',
+      model: 'qwen/qwen3.6-plus:free',
+    });
+
+    await deleteWorkspaceAiSummary('workspace-1');
+    await expect(getWorkspaceAiSummary('workspace-1')).resolves.toBeUndefined();
+
+    await storeWorkspaceAiSummary({
+      workspaceId: 'workspace-1',
+      fingerprint: 'fp-1',
+      title: 'Acme Renewal Workspace',
+      summary: 'The proposal and pricing workbook are driving this renewal.',
+      highlights: ['Proposal-final.docx is the decision-driving document.'],
+      rationale: ['Latest proposal is starred and recently updated.'],
+      model: 'qwen/qwen3.6-plus:free',
+      updatedAt: 123456,
+    });
+
+    await clearDatabase();
+
+    await expect(getWorkspaceAiSummary('workspace-1')).resolves.toBeUndefined();
   });
 });

@@ -1,38 +1,129 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { processFile, TauriFileMetadata } from '@/lib/file-system/scanner';
 import { searchFiles } from '@/lib/search/engine';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { getAllFiles, toggleFileStar, deleteFile } from '@/lib/file-system/db';
-import { SearchInput } from '@/components/search/search-input';
+import {
+  deleteFile,
+  deleteWorkspaceAiSummary,
+  getAllFiles,
+  getWorkspaceAiSummary,
+  storeWorkspaceAiSummary,
+  toggleFileStar,
+} from '@/lib/file-system/db';
+import { SearchInput, type SearchRequest } from '@/components/search/search-input';
 import { ResizableLayout } from '@/components/layout/resizable-layout';
 import { FileListItem } from '@/components/file-viewer/file-list-item';
 import { ProgressBar } from '@/components/ui/progress-bar';
 import { FilePreviewPanel } from '@/components/file-viewer/file-preview-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { FilterSection } from '@/components/sidebar/filter-section';
-import { FolderOpen, FileText, FileCode, Image as ImageIcon, ArrowUpDown, Star, HelpCircle, Globe2, Moon, Sun } from 'lucide-react';
+import { FolderOpen, FileText, FileCode, Image as ImageIcon, ArrowUpDown, Star, HelpCircle, Globe2, Moon, Sun, Archive, Video } from 'lucide-react';
 
 import { useToast } from '@/components/ui/toast';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { QuickLookModal } from '@/components/file-viewer/quick-look-modal';
 import { Settings, LayoutGrid, List } from 'lucide-react';
 import { FirstVisitTour } from '@/components/onboarding/first-visit-tour';
+import { StarterScanModal } from '@/components/onboarding/starter-scan-modal';
+import { WorkInboxPanel } from '@/components/folder-intelligence/work-inbox-panel';
 import { useTranslation } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme-provider';
 import { FileGridItem } from '@/components/file-viewer/file-grid-item';
 import { extractUniqueTags, filterFiles, paginateFiles, sortFiles } from '@/lib/file-browser/utils';
+import { logFrontendMessage } from '@/lib/telemetry/logger';
+import { getIndexingCoordinator } from '@/lib/file-system/indexing-coordinator';
+import { classifyFile, type FileTypeFilterId } from '@/lib/file-browser/classification';
+import {
+  normalizeStarterScanSuggestions,
+  shouldPromptForStarterScan,
+  STARTER_SCAN_COMPLETED_KEY,
+  type StarterScanSuggestion,
+} from '@/lib/onboarding/starter-scan';
+import { buildFolderInsights } from '@/lib/folder-intelligence/workspaces';
+import { buildWorkInboxItems } from '@/lib/work-inbox/items';
+import {
+  getWorkInboxActivity,
+  recordWorkInboxOpenFile,
+  recordWorkInboxVisit,
+  type WorkInboxActivitySnapshot,
+} from '@/lib/work-inbox/activity';
+import {
+  applyFolderInsightAiSummary,
+  buildFolderInsightSummaryFingerprint,
+  requestFolderInsightAiSummary,
+  type FolderInsightAiSummary,
+} from '@/lib/folder-intelligence/ai';
+import {
+  clearCloudIntelligenceConfig,
+  DEFAULT_CLOUD_INTELLIGENCE_MODEL,
+  getCloudIntelligenceStatus,
+  getCloudIntelligenceEnabled,
+  saveCloudIntelligenceConfig,
+  setCloudIntelligenceEnabled,
+  testCloudIntelligenceConnection,
+  type CloudIntelligenceStatus,
+  type SaveCloudIntelligenceConfigInput,
+  type TestCloudIntelligenceConnectionInput,
+} from '@/lib/settings/cloud-intelligence';
 
 const ITEMS_PER_PAGE = 20;
+
+const FILE_TYPE_GROUP_ORDER = [
+  'documents',
+  'code',
+  'images',
+  'media',
+  'archives',
+  'other',
+] as const;
+
+const FILE_TYPE_GROUP_CONFIG = {
+  documents: { labelKey: 'file_type_documents', icon: FileText },
+  code: { labelKey: 'file_type_code', icon: FileCode },
+  images: { labelKey: 'file_type_images', icon: ImageIcon },
+  media: { labelKey: 'file_type_media', icon: Video },
+  archives: { labelKey: 'file_type_archives', icon: Archive },
+  other: { labelKey: 'file_type_other', icon: FolderOpen },
+} as const;
+
+const FILE_TYPE_SUBTYPE_LABELS: Record<string, string> = {
+  pdf: 'file_subtype_pdf',
+  word: 'file_subtype_word',
+  text: 'file_subtype_text',
+  spreadsheet: 'file_subtype_spreadsheet',
+  presentation: 'file_subtype_presentation',
+  javascript: 'file_subtype_javascript',
+  json: 'file_subtype_json',
+  web: 'file_subtype_web',
+  python: 'file_subtype_python',
+  config: 'file_subtype_config',
+  raster: 'file_subtype_raster',
+  vector: 'file_subtype_vector',
+  gif: 'file_subtype_gif',
+  audio: 'file_subtype_audio',
+  video: 'file_subtype_video',
+  archive: 'file_subtype_archive',
+  other: 'file_subtype_other',
+};
+
+interface FolderInsightAiCacheEntry {
+  fingerprint: string;
+  status: 'generating' | 'ready' | 'failed';
+  summary?: FolderInsightAiSummary;
+  updatedAt?: number;
+  error?: string;
+}
 
 export default function Home() {
   const { toast } = useToast();
   const { t, language, setLanguage } = useTranslation();
   const { theme, setTheme } = useTheme();
+  const indexingCoordinator = useMemo(() => getIndexingCoordinator(), []);
 
   // --- State ---
   const [viewMode, setViewMode] = useState<'list'|'grid'>('list');
@@ -54,10 +145,14 @@ export default function Home() {
   // Search
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchQueryRef = useRef('');
+  const searchRequestIdRef = useRef(0);
+  const pendingFileUpdatesRef = useRef(new Map<string, any>());
+  const flushFileUpdatesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Filters
   const [activeFilters, setActiveFilters] = useState<{
-    types: string[];
+    types: FileTypeFilterId[];
     date: string;
     size: string[];
     tags: string[];
@@ -81,6 +176,22 @@ export default function Home() {
   // Settings
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [starterSuggestions, setStarterSuggestions] = useState<StarterScanSuggestion[]>([]);
+  const [isStarterScanOpen, setIsStarterScanOpen] = useState(false);
+  const [isStarterScanning, setIsStarterScanning] = useState(false);
+  const [tourCompletionTick, setTourCompletionTick] = useState(0);
+  const [cloudIntelligenceEnabled, setCloudIntelligenceEnabledState] = useState(true);
+  const [cloudStatus, setCloudStatus] = useState<CloudIntelligenceStatus>({
+    configured: false,
+    source: 'none',
+    model: DEFAULT_CLOUD_INTELLIGENCE_MODEL,
+  });
+  const [folderInsightAiCache, setFolderInsightAiCache] = useState<Record<string, FolderInsightAiCacheEntry>>({});
+  const [workInboxActivity, setWorkInboxActivity] = useState<WorkInboxActivitySnapshot>({ recentFiles: [] });
+  const pendingFolderInsightAiRef = useRef(new Set<string>());
+  const failedFolderInsightAiRef = useRef(new Set<string>());
+  const lastRecordedOpenPathRef = useRef<string | null>(null);
+  const hasRecordedInboxVisitRef = useRef(false);
 
   // --- Effects ---
   // Scroll to top on page change
@@ -95,8 +206,98 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setCloudIntelligenceEnabledState(getCloudIntelligenceEnabled());
+    void getCloudIntelligenceStatus()
+      .then(setCloudStatus)
+      .catch((error) => {
+        console.error('Failed to load cloud intelligence status', error);
+      });
+    setWorkInboxActivity(getWorkInboxActivity());
+  }, []);
+
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
+
+  useEffect(() => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
+
+  const flushBufferedFileUpdates = useCallback(() => {
+    if (flushFileUpdatesTimerRef.current) {
+      clearTimeout(flushFileUpdatesTimerRef.current);
+      flushFileUpdatesTimerRef.current = null;
+    }
+
+    const updates = Array.from(pendingFileUpdatesRef.current.values());
+    if (updates.length === 0) {
+      return;
+    }
+
+    pendingFileUpdatesRef.current.clear();
+    setFiles((prev) => {
+      const nextByPath = new Map(prev.map((file) => [file.path, file]));
+      for (const update of updates) {
+        const existing = nextByPath.get(update.path);
+        nextByPath.set(update.path, existing ? { ...existing, ...update } : update);
+      }
+      return Array.from(nextByPath.values());
+    });
+  }, []);
+
+  const enqueueFileUpdate = useCallback((file: any) => {
+    const existing = pendingFileUpdatesRef.current.get(file.path) ?? {};
+    pendingFileUpdatesRef.current.set(file.path, { ...existing, ...file });
+
+    if (!flushFileUpdatesTimerRef.current) {
+      flushFileUpdatesTimerRef.current = setTimeout(() => {
+        flushBufferedFileUpdates();
+      }, 48);
+    }
+  }, [flushBufferedFileUpdates]);
+
+  useEffect(() => {
+    return () => {
+      if (flushFileUpdatesTimerRef.current) {
+        clearTimeout(flushFileUpdatesTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = indexingCoordinator.subscribe((event) => {
+      if (event.type === 'file-updated') {
+        setSelectedFile((prev: any) => prev?.path === event.file.path ? { ...prev, ...event.file } : prev);
+        if (!searchQuery.trim()) {
+          enqueueFileUpdate(event.file);
+        }
+      }
+
+      if (event.type === 'scan-progress') {
+        setIsScanning(event.completed < event.total);
+        setIsPaused(event.isPaused);
+        setScanProgress({
+          count: event.completed,
+          total: event.total,
+          currentFile: event.currentFile ?? '',
+        });
+      }
+
+      if (event.type === 'scan-complete') {
+        setIsScanning(false);
+        setIsPaused(false);
+        setScanProgress((prev) => ({
+          ...prev,
+          count: event.completed,
+          total: event.total,
+          currentFile: '',
+        }));
+        toast(t('scan_completed'), 'success');
+      }
+    });
+
+    return unsubscribe;
+  }, [enqueueFileUpdate, indexingCoordinator, searchQuery, t, toast]);
 
   // Background File Watcher Listener
   useEffect(() => {
@@ -115,13 +316,14 @@ export default function Home() {
           // create, modify, rename
           try {
             const meta = await invoke<TauriFileMetadata>('get_file_metadata', { path });
-            await processFile(meta);
-            // Refresh from DB or update inline
-            // To ensure we get the full indexedDB record including search terms and extracted text,
-            // we can just re-fetch the specific file from DB if needed, or just refresh all if we want simplicity.
-            // But a fast inline update is better:
-            const updatedAll = await getAllFiles();
-            setFiles(updatedAll);
+            await processFile(meta, {
+              onFileUpdated: (updatedFile) => {
+                setSelectedFile((prev: any) => prev?.path === updatedFile.path ? { ...prev, ...updatedFile } : prev);
+                if (!searchQueryRef.current.trim()) {
+                  enqueueFileUpdate(updatedFile);
+                }
+              },
+            });
           } catch (e) {
             console.error("Failed to process background file change", e);
           }
@@ -134,7 +336,7 @@ export default function Home() {
     return () => {
       if (unlisten) unlisten();
     };
-  }, []);
+  }, [enqueueFileUpdate]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -160,49 +362,95 @@ export default function Home() {
   }, []);
 
   // --- Logic ---
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
+    pendingFileUpdatesRef.current.clear();
+    if (flushFileUpdatesTimerRef.current) {
+      clearTimeout(flushFileUpdatesTimerRef.current);
+      flushFileUpdatesTimerRef.current = null;
+    }
     const all = await getAllFiles();
     setFiles(all);
-  };
+  }, []);
 
-  // Scan a directory by path directly (used by drag-drop)
-  const handleScanDirectory = async (dirPath: string) => {
+  const loadStarterSuggestions = useCallback(async () => {
+    try {
+      const suggestions = normalizeStarterScanSuggestions(
+        await invoke<StarterScanSuggestion[]>('get_recommended_scan_directories')
+      );
+      setStarterSuggestions(suggestions);
+      return suggestions;
+    } catch (error) {
+      console.error('Failed to load starter scan suggestions', error);
+      toast(t('starter_scan_recommendations_failed'), 'error');
+      return [];
+    }
+  }, [t, toast]);
+
+  useEffect(() => {
+    const hasCompletedStarterScan = localStorage.getItem(STARTER_SCAN_COMPLETED_KEY) === 'true';
+    const hasCompletedOnboarding = localStorage.getItem('sfe_onboarded') === 'true';
+
+    if (hasCompletedStarterScan || !hasCompletedOnboarding) {
+      return;
+    }
+
+    void loadStarterSuggestions().then((suggestions) => {
+      if (
+        shouldPromptForStarterScan({
+          hasCompletedStarterScan,
+          indexedFileCount: files.length,
+          suggestions,
+        })
+      ) {
+        setIsStarterScanOpen(true);
+      }
+    });
+  }, [files.length, loadStarterSuggestions, tourCompletionTick]);
+
+  const startScanForDirectories = useCallback(async (dirPaths: string[], options?: { markStarterComplete?: boolean }) => {
+    const uniqueDirectories = Array.from(new Set(dirPaths.map((path) => path.trim()).filter(Boolean)));
+    if (uniqueDirectories.length === 0) {
+      return;
+    }
+
+    const markStarterComplete = options?.markStarterComplete ?? true;
+
     try {
       setIsScanning(true);
       setIsPaused(false);
+      setIsStarterScanning(markStarterComplete);
+      setIsStarterScanOpen(false);
       setScanProgress({ count: 0, total: 0, currentFile: t('scan_discovering') });
 
-      const scannedFiles = await invoke<TauriFileMetadata[]>('scan_directory', { dirPath });
-      const total = scannedFiles.length;
-      setScanProgress(prev => ({ ...prev, total, currentFile: t('scan_starting') }));
+      const metadataBatches = await Promise.all(
+        uniqueDirectories.map((dirPath) => invoke<TauriFileMetadata[]>('scan_directory', { dirPath }))
+      );
+      const uniqueFiles = Array.from(
+        metadataBatches
+          .flat()
+          .reduce((acc, file) => acc.set(file.path, file), new Map<string, TauriFileMetadata>())
+          .values()
+      );
 
-      let count = 0;
-      let lastUpdateTime = Date.now();
+      setScanProgress((prev) => ({ ...prev, total: uniqueFiles.length, currentFile: t('scan_starting') }));
+      await indexingCoordinator.start(uniqueFiles);
 
-      for (const fileMeta of scannedFiles) {
-        while (isPausedRef.current) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        const now = Date.now();
-        if (now - lastUpdateTime > 100 || count === total - 1) {
-          setScanProgress({ count, total, currentFile: fileMeta.name });
-          lastUpdateTime = now;
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-        await processFile(fileMeta);
-        count++;
-        if (count % 200 === 0) await refreshData();
+      if (markStarterComplete) {
+        localStorage.setItem(STARTER_SCAN_COMPLETED_KEY, 'true');
       }
-
-      await refreshData();
-      toast(t('scan_completed'), 'success');
     } catch (error: any) {
       console.error('Tauri scan error:', error);
       toast(t('scan_failed'), 'error');
     } finally {
       setIsScanning(false);
       setIsPaused(false);
+      setIsStarterScanning(false);
     }
+  }, [indexingCoordinator, t, toast]);
+
+  // Scan a directory by path directly (used by drag-drop)
+  const handleScanDirectory = async (dirPath: string) => {
+    await startScanForDirectories([dirPath]);
   };
 
   // Track when we're doing an internal file drag-out
@@ -239,7 +487,7 @@ export default function Home() {
             setIsDragOver(false);
             const paths = event.payload.paths;
             if (paths && paths.length > 0) {
-              handleScanDirectory(paths[0]);
+              void startScanForDirectories(paths);
             }
           }
         });
@@ -253,92 +501,230 @@ export default function Home() {
       window.removeEventListener('dragstart', handleInternalDragStart);
       window.removeEventListener('dragend', handleInternalDragEnd);
     };
-  }, []);
+  }, [startScanForDirectories]);
 
   const handleSelectFolder = async () => {
     try {
       const selected = await open({
         directory: true,
-        multiple: false,
+        multiple: true,
       });
       if (!selected) return;
 
-      const dirPath = selected as string;
-
-      setIsScanning(true);
-      setIsPaused(false);
-      setScanProgress({ count: 0, total: 0, currentFile: t('scan_discovering') });
-
-      // Fast scanning via Tauri Rust engine
-      const scannedFiles = await invoke<TauriFileMetadata[]>('scan_directory', { dirPath });
-      const total = scannedFiles.length;
-
-      setScanProgress(prev => ({ ...prev, total, currentFile: t('scan_starting') }));
-
-      let count = 0;
-      let lastUpdateTime = Date.now();
-      
-      for (const fileMeta of scannedFiles) {
-        while (isPausedRef.current) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        const now = Date.now();
-        // Update UI progress every 100ms instead of every file
-        if (now - lastUpdateTime > 100 || count === total - 1) {
-          setScanProgress({ count, total, currentFile: fileMeta.name });
-          lastUpdateTime = now;
-          
-          // Yield to main thread to prevent "Not Responding"
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-
-        await processFile(fileMeta);
-        count++;
-
-        // Only refresh data every 200 files instead of 50
-        if (count % 200 === 0) {
-          await refreshData();
-        }
-      }
-
-      await refreshData();
-      toast(t('scan_completed'), 'success');
+      const paths = Array.isArray(selected) ? selected : [selected];
+      await startScanForDirectories(paths);
     } catch (error: any) {
       console.error('Tauri scan error:', error);
       toast(t('scan_failed'), 'error');
-    } finally {
-      setIsScanning(false);
-      setIsPaused(false);
     }
   };
 
   const handleTogglePause = () => {
-    setIsPaused(prev => !prev);
+    if (isPausedRef.current) {
+      indexingCoordinator.resume();
+    } else {
+      indexingCoordinator.pause();
+    }
   };
 
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query);
-    if (!query) {
-      refreshData();
+  const handleSearch = useCallback(async (query: string, request: SearchRequest = { mode: 'semantic', trigger: 'submit' }) => {
+    const trimmed = query.trim();
+    setSearchQuery(trimmed);
+
+    if (!trimmed) {
+      const requestId = ++searchRequestIdRef.current;
+      setIsSearching(false);
+      await refreshData();
+      if (requestId !== searchRequestIdRef.current) {
+        return;
+      }
       return;
     }
-    setIsSearching(true);
-    setSortBy('relevance');  // Auto-switch sort to relevance
-    setSortOrder('desc');
-    try {
-      const results = await searchFiles(query);
-      const mapped = results.map(r => ({ ...r.file, score: r.score }));
-      setFiles(mapped);
-    } finally {
-      setIsSearching(false);
+
+    if (request.mode === 'semantic' && request.trigger === 'change' && isScanning) {
+      return;
     }
-  };
+
+    const requestId = ++searchRequestIdRef.current;
+    setIsSearching(request.mode === 'semantic');
+    setSortBy('relevance');
+    setSortOrder('desc');
+
+    try {
+      const results = await searchFiles(trimmed, {
+        useSemantic: request.mode !== 'lexical',
+      });
+      if (requestId !== searchRequestIdRef.current) {
+        return;
+      }
+
+      const mapped = results.map(r => ({
+        ...r.file,
+        score: r.score,
+        confidence: r.confidence,
+        reasons: r.reasons,
+        factors: r.factors,
+        snippet: r.snippet,
+        locationLabel: r.locationLabel,
+        isLikelyLatest: r.isLikelyLatest,
+      }));
+      setFiles(mapped);
+    } catch (error) {
+      if (requestId !== searchRequestIdRef.current) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Search failed', error);
+      void logFrontendMessage('error', message, 'main-search');
+      toast(`${t('search_failed')} ${message}`, 'error');
+    } finally {
+      if (requestId === searchRequestIdRef.current && request.mode === 'semantic') {
+        setIsSearching(false);
+      }
+    }
+  }, [isScanning, refreshData, t, toast]);
 
   const handleIndexCleared = () => {
     setFiles([]);
     setSelectedFile(null);
+    setFolderInsightAiCache({});
     toast(t('index_cleared'), 'info');
+  };
+
+  const handleCloudIntelligenceEnabledChange = (enabled: boolean) => {
+    setCloudIntelligenceEnabled(enabled);
+    setCloudIntelligenceEnabledState(enabled);
+  };
+
+  const handleSaveCloudConfig = async (input: SaveCloudIntelligenceConfigInput) => {
+    try {
+      const nextStatus = await saveCloudIntelligenceConfig(input);
+      setCloudStatus(nextStatus);
+      toast(t('privacy_cloud_save_success'), 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void logFrontendMessage('error', message, 'page-cloud-save');
+      toast(message, 'error');
+      throw error;
+    }
+  };
+
+  const handleTestCloudConnection = async (input: TestCloudIntelligenceConnectionInput) => {
+    try {
+      const nextStatus = await testCloudIntelligenceConnection(input);
+      setCloudStatus(nextStatus);
+      if (nextStatus.lastError) {
+        toast(nextStatus.lastError, 'error');
+      } else {
+        toast(t('privacy_cloud_test_success'), 'success');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void logFrontendMessage('error', message, 'page-cloud-test');
+      toast(message, 'error');
+      throw error;
+    }
+  };
+
+  const handleClearCloudConfig = async () => {
+    try {
+      const nextStatus = await clearCloudIntelligenceConfig();
+      setCloudStatus(nextStatus);
+      setFolderInsightAiCache((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(next)) {
+          if (next[key]?.status !== 'ready') {
+            delete next[key];
+          }
+        }
+        return next;
+      });
+      toast(t('privacy_cloud_clear_success'), 'info');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void logFrontendMessage('error', message, 'page-cloud-clear');
+      toast(message, 'error');
+      throw error;
+    }
+  };
+
+  const handleRefreshFolderInsightSummary = async (workspaceId: string) => {
+    const insight = folderInsights.find((candidate) => candidate.id === workspaceId);
+    if (!insight) {
+      return;
+    }
+
+    const fingerprint = buildFolderInsightSummaryFingerprint(insight);
+    failedFolderInsightAiRef.current.delete(fingerprint);
+    pendingFolderInsightAiRef.current.delete(workspaceId);
+    await deleteWorkspaceAiSummary(workspaceId);
+    setFolderInsightAiCache((prev) => {
+      const next = { ...prev };
+      delete next[workspaceId];
+      return next;
+    });
+
+    if (!cloudIntelligenceEnabled) {
+      toast(t('privacy_cloud_intelligence_disabled_hint'), 'info');
+      return;
+    }
+
+    if (!cloudStatus.configured) {
+      setFolderInsightAiCache((prev) => ({
+        ...prev,
+        [workspaceId]: {
+          fingerprint,
+          status: 'failed',
+          error: t('privacy_cloud_status_not_connected'),
+        },
+      }));
+      toast(t('privacy_cloud_status_not_connected'), 'info');
+      return;
+    }
+
+    try {
+      setFolderInsightAiCache((prev) => ({
+        ...prev,
+        [workspaceId]: {
+          fingerprint,
+          status: 'generating',
+        },
+      }));
+      const summary = await requestFolderInsightAiSummary(insight);
+      setFolderInsightAiCache((prev) => ({
+        ...prev,
+        [workspaceId]: {
+          fingerprint,
+          status: 'ready',
+          summary,
+          updatedAt: Date.now(),
+        },
+      }));
+      await storeWorkspaceAiSummary({
+        workspaceId,
+        fingerprint,
+        title: summary.title,
+        summary: summary.summary,
+        highlights: summary.highlights,
+        rationale: summary.rationale,
+        model: summary.model,
+        updatedAt: Date.now(),
+      });
+      toast(t('folder_intelligence_refresh_ai_summary'), 'success');
+    } catch (error) {
+      failedFolderInsightAiRef.current.add(fingerprint);
+      console.error('Failed to refresh folder insight with AI', error);
+      setFolderInsightAiCache((prev) => ({
+        ...prev,
+        [workspaceId]: {
+          fingerprint,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        },
+      }));
+      toast(t('search_failed'), 'error');
+    }
   };
 
   const handleToggleStar = async (e: React.MouseEvent, path: string) => {
@@ -375,6 +761,173 @@ export default function Home() {
     setLanguage(language === 'vi' ? 'en' : 'vi');
   };
 
+  const folderInsights = useMemo(() => {
+    if (searchQuery.trim()) {
+      return [];
+    }
+    return buildFolderInsights(files);
+  }, [files, searchQuery]);
+
+  useEffect(() => {
+    if (searchQuery.trim() || isScanning || folderInsights.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const enrichTopInsights = async () => {
+      for (const insight of folderInsights.slice(0, 3)) {
+        const fingerprint = buildFolderInsightSummaryFingerprint(insight);
+        const cached = folderInsightAiCache[insight.id];
+
+        if (cached?.fingerprint === fingerprint && cached.status === 'ready') {
+          continue;
+        }
+
+        const persisted = await getWorkspaceAiSummary(insight.id);
+        if (persisted?.fingerprint === fingerprint) {
+          if (cancelled) {
+            return;
+          }
+
+          setFolderInsightAiCache((prev) => ({
+            ...prev,
+            [insight.id]: {
+              fingerprint,
+              status: 'ready',
+              summary: {
+                workspaceId: persisted.workspaceId,
+                title: persisted.title,
+                summary: persisted.summary,
+                highlights: persisted.highlights,
+                rationale: persisted.rationale,
+                model: persisted.model,
+              },
+              updatedAt: persisted.updatedAt,
+            },
+          }));
+          continue;
+        }
+
+        if (!cloudIntelligenceEnabled || !cloudStatus.configured) {
+          setFolderInsightAiCache((prev) => ({
+            ...prev,
+            [insight.id]: {
+              fingerprint,
+              status: 'failed',
+              error: !cloudIntelligenceEnabled ? t('privacy_cloud_intelligence_disabled_hint') : t('privacy_cloud_status_not_connected'),
+            },
+          }));
+          continue;
+        }
+
+        if (
+          pendingFolderInsightAiRef.current.has(insight.id)
+          || failedFolderInsightAiRef.current.has(fingerprint)
+        ) {
+          continue;
+        }
+
+        pendingFolderInsightAiRef.current.add(insight.id);
+
+        try {
+          setFolderInsightAiCache((prev) => ({
+            ...prev,
+            [insight.id]: {
+              fingerprint,
+              status: 'generating',
+            },
+          }));
+          const summary = await requestFolderInsightAiSummary(insight);
+          if (cancelled) {
+            return;
+          }
+
+          setFolderInsightAiCache((prev) => ({
+            ...prev,
+            [insight.id]: {
+              fingerprint,
+              status: 'ready',
+              summary,
+              updatedAt: Date.now(),
+            },
+          }));
+          await storeWorkspaceAiSummary({
+            workspaceId: insight.id,
+            fingerprint,
+            title: summary.title,
+            summary: summary.summary,
+            highlights: summary.highlights,
+            rationale: summary.rationale,
+            model: summary.model,
+            updatedAt: Date.now(),
+          });
+        } catch (error) {
+          failedFolderInsightAiRef.current.add(fingerprint);
+          console.error('Failed to enrich folder insight with AI', error);
+          setFolderInsightAiCache((prev) => ({
+            ...prev,
+            [insight.id]: {
+              fingerprint,
+              status: 'failed',
+              error: error instanceof Error ? error.message : String(error),
+            },
+          }));
+        } finally {
+          pendingFolderInsightAiRef.current.delete(insight.id);
+        }
+      }
+    };
+
+    void enrichTopInsights();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudIntelligenceEnabled, cloudStatus.configured, folderInsightAiCache, folderInsights, isScanning, searchQuery, t]);
+
+  const visibleFolderInsights = useMemo(() => (
+    folderInsights.map((insight) => {
+      const cacheEntry = folderInsightAiCache[insight.id];
+      const enriched = applyFolderInsightAiSummary(insight, cacheEntry?.summary);
+      return {
+        ...enriched,
+        summaryState: cacheEntry?.status ?? (!cloudIntelligenceEnabled ? 'local' : cloudStatus.configured ? 'local' : 'not_connected'),
+        summaryUpdatedAt: cacheEntry?.updatedAt,
+        summaryError: cacheEntry?.error,
+      };
+    })
+  ), [cloudIntelligenceEnabled, cloudStatus.configured, folderInsightAiCache, folderInsights]);
+
+  const workInboxItems = useMemo(() => (
+    buildWorkInboxItems(visibleFolderInsights, workInboxActivity)
+  ), [visibleFolderInsights, workInboxActivity]);
+
+  useEffect(() => {
+    if (searchQuery.trim() || workInboxItems.length === 0 || hasRecordedInboxVisitRef.current) {
+      return;
+    }
+
+    recordWorkInboxVisit();
+    hasRecordedInboxVisitRef.current = true;
+  }, [searchQuery, workInboxItems.length]);
+
+  useEffect(() => {
+    if (!selectedFile?.path || lastRecordedOpenPathRef.current === selectedFile.path) {
+      return;
+    }
+
+    const workspaceMatch = visibleFolderInsights.find((insight) => insight.path === selectedFile.path.replace(/[/\\][^/\\]+$/, ''));
+    const updated = recordWorkInboxOpenFile({
+      path: selectedFile.path,
+      name: selectedFile.name,
+      workspaceId: workspaceMatch?.id,
+      workspaceTitle: workspaceMatch?.title,
+    });
+    lastRecordedOpenPathRef.current = selectedFile.path;
+    setWorkInboxActivity(updated);
+  }, [selectedFile, visibleFolderInsights]);
+
   // --- Filtering & Sorting ---
   const filteredAndSortedFiles = useMemo(() => {
     return sortFiles(filterFiles(files, activeFilters), sortBy, sortOrder);
@@ -393,7 +946,9 @@ export default function Home() {
   const toggleTypeFilter = (id: string) => {
     setActiveFilters(prev => ({
       ...prev,
-      types: prev.types.includes(id) ? prev.types.filter(t => t !== id) : [...prev.types, id]
+      types: prev.types.includes(id as FileTypeFilterId)
+        ? prev.types.filter(t => t !== id)
+        : [...prev.types, id as FileTypeFilterId]
     }));
   };
 
@@ -415,6 +970,34 @@ export default function Home() {
   const uniqueTags = useMemo(() => {
     return extractUniqueTags(files);
   }, [files]);
+
+  const fileTypeOptions = useMemo(() => {
+    return FILE_TYPE_GROUP_ORDER.map((groupId) => {
+      const groupConfig = FILE_TYPE_GROUP_CONFIG[groupId];
+      const GroupIcon = groupConfig.icon;
+      const groupFiles = files.filter((file) => (file.group ?? classifyFile(file.name).group) === groupId);
+      const subtypeCounts = new Map<string, number>();
+
+      for (const file of groupFiles) {
+        const subtype = file.subtype ?? classifyFile(file.name).subtype;
+        subtypeCounts.set(subtype, (subtypeCounts.get(subtype) ?? 0) + 1);
+      }
+
+      return {
+        id: groupId,
+        label: t(groupConfig.labelKey),
+        icon: <GroupIcon className="w-3.5 h-3.5" />,
+        count: groupFiles.length,
+        children: Array.from(subtypeCounts.entries())
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([subtype, count]) => ({
+            id: `${groupId}:${subtype}`,
+            label: t(FILE_TYPE_SUBTYPE_LABELS[subtype] ?? 'file_subtype_other'),
+            count,
+          })),
+      };
+    }).filter((option) => option.count > 0);
+  }, [files, t]);
 
   // --- Sub-components ---
   const Sidebar = (
@@ -516,11 +1099,7 @@ export default function Home() {
           title={t('file_type')}
           selectedIds={activeFilters.types}
           onChange={toggleTypeFilter}
-          options={[
-            { id: 'doc', label: t('documents'), icon: <FileText className="w-3.5 h-3.5" />, count: files.filter(f => ['.pdf', '.docx', '.txt', '.md'].includes('.' + f.name.split('.').pop())).length },
-            { id: 'code', label: t('code_files'), icon: <FileCode className="w-3.5 h-3.5" />, count: files.filter(f => ['.js', '.ts', '.tsx', '.py', '.json', '.html', '.css', '.xml', '.yaml', '.yml'].includes('.' + f.name.split('.').pop())).length },
-            { id: 'image', label: t('images'), icon: <ImageIcon className="w-3.5 h-3.5" />, count: 0 },
-          ]}
+          options={fileTypeOptions}
         />
 
         {uniqueTags.length > 0 && (
@@ -575,8 +1154,37 @@ export default function Home() {
 
   return (
     <>
-      <FirstVisitTour isOpen={isTourOpen} onClose={() => setIsTourOpen(false)} />
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onClearIndex={handleIndexCleared} />
+      <FirstVisitTour
+        isOpen={isTourOpen}
+        onClose={() => {
+          setIsTourOpen(false);
+          setTourCompletionTick((value) => value + 1);
+        }}
+      />
+      <StarterScanModal
+        isOpen={isStarterScanOpen}
+        suggestions={starterSuggestions}
+        isStarting={isStarterScanning}
+        onDismiss={() => {
+          localStorage.setItem(STARTER_SCAN_COMPLETED_KEY, 'true');
+          setIsStarterScanOpen(false);
+        }}
+        onBrowse={handleSelectFolder}
+        onStart={(paths) => {
+          void startScanForDirectories(paths, { markStarterComplete: true });
+        }}
+      />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onClearIndex={handleIndexCleared}
+        cloudIntelligenceEnabled={cloudIntelligenceEnabled}
+        onCloudIntelligenceEnabledChange={handleCloudIntelligenceEnabledChange}
+        cloudStatus={cloudStatus}
+        onSaveCloudConfig={handleSaveCloudConfig}
+        onTestCloudConnection={handleTestCloudConnection}
+        onClearCloudConfig={handleClearCloudConfig}
+      />
       <QuickLookModal isOpen={isQuickLookOpen} onClose={() => setIsQuickLookOpen(false)} file={selectedFile} />
       <ResizableLayout
       sidebar={Sidebar}
@@ -655,6 +1263,16 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+          {!searchQuery.trim() && workInboxItems.length > 0 && (
+            <WorkInboxPanel
+              items={workInboxItems}
+              onOpenFile={(file) => {
+                const matched = files.find((item) => item.path === file.path) ?? file;
+                setSelectedFile(matched);
+              }}
+            />
+          )}
 
           {/* File List */}
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto bg-white dark:bg-gray-900 scroll-smooth relative">

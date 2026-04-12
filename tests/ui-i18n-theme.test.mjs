@@ -164,3 +164,11 @@ test('main page includes inline toolbar controls for theme and language instead 
   assert.equal(settings.includes("t('language')"), false, 'Settings modal should no longer render the language selector');
   assert.equal(settings.includes("t('theme')"), false, 'Settings modal should no longer render the theme selector');
 });
+
+test('global styles include custom scrollbar styling for dark mode surfaces', () => {
+  const globals = read('src/app/globals.css');
+
+  assert.match(globals, /::-webkit-scrollbar/, 'Globals should style webkit scrollbars');
+  assert.match(globals, /scrollbar-color:/, 'Globals should style Firefox scrollbars');
+  assert.match(globals, /dark/, 'Scrollbar styling should account for dark surfaces');
+});

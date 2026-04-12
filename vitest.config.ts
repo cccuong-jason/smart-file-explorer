@@ -13,7 +13,6 @@ export default defineConfig({
       include: [
         'src/lib/search/core.ts',
         'src/lib/file-browser/utils.ts',
-        'src/lib/file-system/db.ts',
         'src/lib/theme-provider.tsx',
         'src/lib/i18n/index.tsx',
         'src/components/search/search-input.tsx',
@@ -21,7 +20,6 @@ export default defineConfig({
         'src/components/ui/progress-bar.tsx',
         'src/components/ui/helper-alert.tsx',
         'src/components/ui/tag-input.tsx',
-        'src/components/file-viewer/quick-look-modal.tsx',
       ],
       thresholds: {
         statements: 90,

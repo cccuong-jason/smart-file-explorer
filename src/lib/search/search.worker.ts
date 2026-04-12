@@ -1,21 +1,28 @@
 
-import { getAllFiles } from '../file-system/db';
+import { getAllChunks, getAllFiles } from '../file-system/db';
 import { generateEmbedding } from './vector-engine';
-import { findRelatedFileMatches, rankSearchResults } from './core';
+import { collectChunkSignals, findRelatedFileMatches, rankSearchResults } from './core';
 
 // Search Logic
 async function searchFiles(query: string, useSemantic = true) {
-    const allFiles = await getAllFiles();
+    const [allFiles, allChunks] = await Promise.all([getAllFiles(), getAllChunks()]);
     if (!useSemantic) {
         return rankSearchResults({ query, files: allFiles, semanticEnabled: false });
     }
 
     try {
         const queryEmbedding = await generateEmbedding(query);
+        const chunkSignals = collectChunkSignals({
+            query,
+            chunks: allChunks,
+            queryEmbedding,
+            semanticEnabled: true,
+        });
         return rankSearchResults({
             query,
             files: allFiles,
             queryEmbedding,
+            chunkSignals,
             semanticEnabled: true,
         });
     } catch (error) {
@@ -36,7 +43,7 @@ self.onmessage = async (e: MessageEvent) => {
 
     try {
         if (type === 'SEARCH') {
-            const results = await searchFiles(payload.query);
+            const results = await searchFiles(payload.query, payload.useSemantic !== false);
             self.postMessage({ type: 'SEARCH_RESULT', payload: results, id });
         } else if (type === 'RELATED') {
             const results = await findRelatedFiles(payload.sourceFile);

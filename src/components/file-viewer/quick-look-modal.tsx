@@ -1,7 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { FileText, FileCode, FileJson, FileType, Image as ImageIcon, ExternalLink, X, HardDrive, Calendar } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from '@/lib/i18n';
+import { getPreviewAssetUrl, getPreviewMode } from './preview-utils';
+import { readLocalFileAsObjectUrl, revokeLocalFileUrl } from '@/lib/file-system/local-file-data';
 
 interface QuickLookModalProps {
     isOpen: boolean;
@@ -29,6 +31,9 @@ const FILE_TYPE_CONFIG: Record<string, { icon: any, color: string, label: string
 
 export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
     const { t, language } = useTranslation();
+    const [previewUrl, setPreviewUrl] = useState('');
+    const previewMode = getPreviewMode(file);
+    const previewAssetUrl = previewMode === 'image' ? getPreviewAssetUrl(file?.path) : '';
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -40,6 +45,35 @@ export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, onClose]);
+
+    useEffect(() => {
+        if (!isOpen || previewMode !== 'image' || !file?.path) {
+            setPreviewUrl('');
+            return;
+        }
+
+        let active = true;
+        let objectUrl = '';
+        setPreviewUrl(previewAssetUrl);
+
+        readLocalFileAsObjectUrl(file.path, file.name)
+            .then((url) => {
+                objectUrl = url;
+                if (active) {
+                    setPreviewUrl(url);
+                }
+            })
+            .catch(() => {
+                if (active) {
+                    setPreviewUrl(previewAssetUrl);
+                }
+            });
+
+        return () => {
+            active = false;
+            revokeLocalFileUrl(objectUrl);
+        };
+    }, [file?.name, file?.path, isOpen, previewAssetUrl, previewMode]);
 
     if (!isOpen || !file) return null;
 
@@ -95,8 +129,25 @@ export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
                 </div>
 
                 {/* Content Area */}
-                <div className="flex-1 overflow-auto bg-gray-100/50 dark:bg-gray-950 p-6 flex flex-col">
-                    {file.content ? (
+                <div className="flex-1 min-h-0 overflow-auto bg-gray-100/50 dark:bg-gray-950 p-6 flex flex-col">
+                    {previewMode === 'image' ? (
+                        <div className="flex-1 bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col min-h-0">
+                            <div className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800 p-2 px-4 flex justify-between items-center shrink-0">
+                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{t('preview')}</span>
+                                <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
+                                    <span className="flex items-center gap-1.5"><HardDrive className="w-3 h-3" /> {(file.size / 1024).toFixed(1)} KB</span>
+                                    <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> {new Date(file.lastModified).toLocaleDateString(locale)}</span>
+                                </div>
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-auto p-6 flex items-center justify-center bg-gray-100/70 dark:bg-gray-950">
+                                <img
+                                    src={previewUrl || previewAssetUrl}
+                                    alt={file.name}
+                                    className="max-h-full max-w-full rounded-lg object-contain shadow-lg"
+                                />
+                            </div>
+                        </div>
+                    ) : previewMode === 'text' ? (
                         <div className="flex-1 bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col">
                             <div className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800 p-2 px-4 flex justify-between items-center shrink-0">
                                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{t('document_content')}</span>

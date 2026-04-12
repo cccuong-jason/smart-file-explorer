@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectChunkSignals,
   cosineSimilarity,
   rankSearchResults,
   findRelatedFileMatches,
@@ -12,22 +13,74 @@ const files: SearchableFile[] = [
     name: 'budget.md',
     content: 'quarterly finance plan',
     embedding: [1, 0, 0],
+    lastModified: new Date('2026-01-02').getTime(),
   },
   {
     path: '/docs/notes.md',
     name: 'notes.md',
     content: 'meeting notes',
     embedding: [0.8, 0.2, 0],
+    lastModified: new Date('2026-01-01').getTime(),
   },
   {
     path: '/code/search.ts',
     name: 'search.ts',
     content: 'search implementation',
     embedding: [0, 1, 0],
+    lastModified: new Date('2025-12-10').getTime(),
   },
   {
     path: '/docs/blank.md',
     name: 'blank.md',
+    lastModified: new Date('2025-10-02').getTime(),
+  },
+];
+
+const contextFiles: SearchableFile[] = [
+  {
+    path: '/clients/acme/proposals/Acme Proposal v3 final.docx',
+    name: 'Acme Proposal v3 final.docx',
+    content: 'Acme renewal proposal with final pricing and approved scope',
+    embedding: [1, 0, 0],
+    lastModified: new Date('2026-03-28').getTime(),
+    tags: ['proposal', 'acme'],
+    isStarred: true,
+  },
+  {
+    path: '/clients/acme/proposals/Acme Proposal draft.docx',
+    name: 'Acme Proposal draft.docx',
+    content: 'Early draft for Acme proposal',
+    embedding: [0.92, 0.08, 0],
+    lastModified: new Date('2026-02-10').getTime(),
+    tags: ['proposal'],
+  },
+  {
+    path: '/clients/acme/notes/kickoff-notes.md',
+    name: 'kickoff-notes.md',
+    content: 'Acme kickoff meeting notes and project details',
+    embedding: [0.65, 0.35, 0],
+    lastModified: new Date('2026-03-15').getTime(),
+  },
+];
+
+const chunks = [
+  {
+    id: '/clients/acme/proposals/Acme Proposal v3 final.docx::0',
+    filePath: '/clients/acme/proposals/Acme Proposal v3 final.docx',
+    index: 0,
+    text: 'Approved pricing and renewal terms for Acme',
+    embedding: [1, 0, 0],
+    sourceLabel: 'Page 2',
+    pageNumber: 2,
+  },
+  {
+    id: '/clients/acme/proposals/Acme Proposal draft.docx::0',
+    filePath: '/clients/acme/proposals/Acme Proposal draft.docx',
+    index: 0,
+    text: 'Early draft language without final pricing',
+    embedding: [0.6, 0.4, 0],
+    sourceLabel: 'Page 1',
+    pageNumber: 1,
   },
 ];
 
@@ -47,6 +100,8 @@ describe('search core ranking', () => {
 
     expect(results[0]?.file.path).toBe('/docs/budget.md');
     expect(results.every((result) => result.score > 0.1)).toBe(true);
+    expect(results[0]?.reasons).toContain('exact_name');
+    expect(results[0]?.confidence).toBe('high');
   });
 
   it('falls back to keyword-only ranking when semantic search is disabled', () => {
@@ -80,6 +135,84 @@ describe('search core ranking', () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it('boosts the likely latest deliverable using context and version cues', () => {
+    const results = rankSearchResults({
+      query: 'latest acme proposal',
+      files: contextFiles,
+      queryEmbedding: [1, 0, 0],
+      semanticEnabled: true,
+    });
+
+    expect(results[0]?.file.path).toBe('/clients/acme/proposals/Acme Proposal v3 final.docx');
+    expect(results[0]?.isLikelyLatest).toBe(true);
+    expect(results[0]?.reasons).toEqual(
+      expect.arrayContaining(['semantic', 'project_context', 'recent_update', 'latest_signal'])
+    );
+  });
+
+  it('returns a snippet and contextual reasons for work-document matches', () => {
+    const results = rankSearchResults({
+      query: 'acme proposal pricing',
+      files: contextFiles,
+      queryEmbedding: [1, 0, 0],
+      semanticEnabled: true,
+    });
+
+    expect(results[0]?.snippet).toContain('final pricing');
+    expect(results[0]?.reasons).toEqual(
+      expect.arrayContaining(['semantic', 'project_context', 'content_terms', 'starred'])
+    );
+    expect(results[0]?.factors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'semantic',
+          evidence: expect.arrayContaining([expect.stringContaining('final pricing')]),
+        }),
+        expect.objectContaining({
+          code: 'project_context',
+          evidence: expect.arrayContaining([expect.stringContaining('/clients/acme/proposals')]),
+        }),
+      ])
+    );
+    expect(results[0]?.confidence).toBe('high');
+  });
+
+  it('collects chunk-level signals and propagates the best snippet', () => {
+    const chunkSignals = collectChunkSignals({
+      query: 'acme pricing',
+      chunks,
+      queryEmbedding: [1, 0, 0],
+      semanticEnabled: true,
+    });
+
+    expect(chunkSignals.get('/clients/acme/proposals/Acme Proposal v3 final.docx')?.snippet).toContain('pricing');
+    expect(
+      chunkSignals.get('/clients/acme/proposals/Acme Proposal v3 final.docx')?.reasons
+    ).toEqual(expect.arrayContaining(['semantic', 'content_terms']));
+    expect(chunkSignals.get('/clients/acme/proposals/Acme Proposal v3 final.docx')?.locationLabel).toBe('Page 2');
+  });
+
+  it('uses chunk signals to rank the correct file even when file content is thin', () => {
+    const chunkSignals = collectChunkSignals({
+      query: 'acme pricing',
+      chunks,
+      queryEmbedding: [1, 0, 0],
+      semanticEnabled: true,
+    });
+
+    const results = rankSearchResults({
+      query: 'acme pricing',
+      files: contextFiles.map((file) => ({ ...file, content: file.name.includes('draft') ? file.content : undefined })),
+      queryEmbedding: [1, 0, 0],
+      semanticEnabled: true,
+      chunkSignals,
+    });
+
+    expect(results[0]?.file.path).toBe('/clients/acme/proposals/Acme Proposal v3 final.docx');
+    expect(results[0]?.snippet).toContain('pricing');
+    expect(results[0]?.locationLabel).toBe('Page 2');
   });
 });
 

@@ -61,7 +61,7 @@ describe('file browser utils', () => {
     const filtered = filterFiles(files, {
       ...defaultFilters,
       favorites: true,
-      types: ['doc'],
+      types: ['documents'],
       date: 'today',
       size: ['small'],
       tags: ['work'],
@@ -71,10 +71,11 @@ describe('file browser utils', () => {
     expect(filtered[0]?.path).toBe('/docs/spec.md');
   });
 
-  it('supports image, code, week, month, medium, large, huge, and unknown type branches', () => {
-    expect(filterFiles(files, { ...defaultFilters, types: ['image'] }, new Date(now))).toEqual([files[2]]);
+  it('supports image, code, nested subtype, week, month, medium, large, huge, and unknown type branches', () => {
+    expect(filterFiles(files, { ...defaultFilters, types: ['images'] }, new Date(now))).toEqual([files[2]]);
     expect(filterFiles(files, { ...defaultFilters, types: ['code'] }, new Date(now))).toEqual([files[1]]);
-    expect(filterFiles(files, { ...defaultFilters, types: ['other'] }, new Date(now))).toHaveLength(4);
+    expect(filterFiles(files, { ...defaultFilters, types: ['documents:text'] }, new Date(now))).toEqual([files[0]]);
+    expect(filterFiles(files, { ...defaultFilters, types: ['other'] }, new Date(now))).toEqual([files[3]]);
     expect(filterFiles(files, { ...defaultFilters, date: 'week' }, new Date(now))).toEqual([files[0], files[1]]);
     expect(filterFiles(files, { ...defaultFilters, date: 'month' }, new Date(now))).toEqual([files[0], files[1], files[3]]);
     expect(filterFiles(files, { ...defaultFilters, size: ['medium'] }, new Date(now))).toEqual([files[1]]);
@@ -85,6 +86,10 @@ describe('file browser utils', () => {
   it('rejects missing tags and non-favorite files when those filters are active', () => {
     expect(filterFiles(files, { ...defaultFilters, tags: ['missing'] }, new Date(now))).toEqual([]);
     expect(filterFiles(files, { ...defaultFilters, favorites: true }, new Date(now))).toEqual([files[0]]);
+  });
+
+  it('ignores unsupported size filters instead of dropping valid files', () => {
+    expect(filterFiles(files, { ...defaultFilters, size: ['custom'] }, new Date(now))).toEqual(files);
   });
 
   it('sorts files by relevance, date, size, and name', () => {

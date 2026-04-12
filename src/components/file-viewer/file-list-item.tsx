@@ -5,6 +5,12 @@ import { clsx } from 'clsx';
 import { invoke, Channel } from '@tauri-apps/api/core';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { appCacheDir, join } from '@tauri-apps/api/path';
+import { useTranslation } from '@/lib/i18n';
+import {
+    getReasonPresentation,
+    getMatchPercentage,
+    getToneClasses,
+} from '@/lib/search/presentation';
 
 interface FileListItemProps {
     file: any;
@@ -94,10 +100,17 @@ function createDragImage(fileName: string, color: string): string {
 }
 
 export function FileListItem({ file, score, isSelected, onClick, onToggleStar }: FileListItemProps) {
+    const { t } = useTranslation();
     const ext = file.name.split('.').pop()?.toLowerCase() || 'txt';
     const config = FILE_TYPE_CONFIG[ext] || { icon: FileText, color: 'gray', label: ext.toUpperCase() };
     const Icon = config.icon;
     const [isDragging, setIsDragging] = useState(false);
+    const visibleFactors = Array.isArray(file.factors)
+        ? file.factors.slice(0, 3)
+        : (Array.isArray(file.reasons) ? file.reasons.slice(0, 3).map((reason: string) => ({ code: reason })) : []);
+    const remainingFactorCount = Array.isArray(file.factors)
+        ? Math.max(0, file.factors.length - visibleFactors.length)
+        : (Array.isArray(file.reasons) ? Math.max(0, file.reasons.length - visibleFactors.length) : 0);
 
     const colorStyles: Record<string, string> = {
         blue: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
@@ -202,11 +215,13 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
                     <h4 className={clsx('text-base font-semibold truncate pr-8', isSelected ? 'text-indigo-700 dark:text-indigo-400' : 'text-gray-900 dark:text-gray-100')}>
                         {file.name}
                     </h4>
-                    {score !== undefined && (
-                        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full shrink-0 border border-emerald-100 dark:border-emerald-800 shadow-sm">
-                            {Math.min(Math.round(score * 100), 100)}% Match
-                        </span>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0">
+                        {score !== undefined && (
+                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm">
+                                {getMatchPercentage(score)}%
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 <p className="text-xs text-gray-400 truncate font-mono inline-block">{file.path}</p>
@@ -217,18 +232,57 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
                     </span>
                     <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
                     <span className="flex items-center gap-1">
-                        Size: <span className="font-medium text-gray-700 dark:text-gray-300">{formatSize(file.size)}</span>
+                        {t('size')}: <span className="font-medium text-gray-700 dark:text-gray-300">{formatSize(file.size)}</span>
                     </span>
                     <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
                     <span className="flex items-center gap-1">
-                        Modified: <span className="font-medium text-gray-700 dark:text-gray-300">{formatDate(file.lastModified)}</span>
+                        {t('modified')}: <span className="font-medium text-gray-700 dark:text-gray-300">{formatDate(file.lastModified)}</span>
                     </span>
                 </div>
 
+                {(file.isLikelyLatest || visibleFactors.length > 0) && (
+                    <div className="flex flex-wrap items-center gap-2 pt-2">
+                        {file.isLikelyLatest && (
+                            <span className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 rounded-full border border-indigo-100 dark:border-indigo-900">
+                                {t('likely_latest_version')}
+                            </span>
+                        )}
+                        {visibleFactors.map((factor: any) => {
+                            const presentation = getReasonPresentation(factor.code as any);
+                            const tone = getToneClasses(presentation.tone);
+                            const tooltip = Array.isArray(factor.evidence) && factor.evidence.length > 0
+                                ? factor.evidence.join('\n')
+                                : t(presentation.descriptionKey);
+
+                            return (
+                                <span
+                                    key={factor.code}
+                                    title={tooltip}
+                                    className={`text-[11px] font-medium px-2 py-1 rounded-full border ${tone.badge}`}
+                                >
+                                    {t(presentation.labelKey)}
+                                </span>
+                            );
+                        })}
+                        {remainingFactorCount > 0 && (
+                            <span className="text-[11px] font-medium px-2 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                                {t('match_more_factors', { count: remainingFactorCount })}
+                            </span>
+                        )}
+                    </div>
+                )}
+
                 {file.snippet && (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 line-clamp-2 leading-relaxed border-l-2 border-gray-200 dark:border-gray-700 pl-3 italic">
-                        &quot;...{file.snippet}...&quot;
-                    </p>
+                    <div className="mt-2 border-l-2 border-gray-200 dark:border-gray-700 pl-3">
+                        {file.locationLabel && (
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300 mb-1">
+                                {file.locationLabel}
+                            </p>
+                        )}
+                        <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed italic">
+                            &quot;...{file.snippet}...&quot;
+                        </p>
+                    </div>
                 )}
             </div>
 

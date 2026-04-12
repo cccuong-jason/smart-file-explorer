@@ -7,6 +7,7 @@ import { Search, FileText, FileCode, X, Loader2, ArrowUpDown } from 'lucide-reac
 import { searchFiles } from '@/lib/search/engine';
 import clsx from 'clsx';
 import { useTranslation } from '@/lib/i18n';
+import { getMatchPercentage } from '@/lib/search/presentation';
 
 function FileIcon({ name }: { name: string }) {
   const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -160,8 +161,16 @@ export default function SpotlightPage() {
                     <p className={clsx('text-sm font-semibold truncate', isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-900 dark:text-gray-100')}>
                       {res.file.name}
                     </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{dir}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
+                      {res.locationLabel ? `${res.locationLabel} · ${dir}` : dir}
+                    </p>
                   </div>
+
+                  {(res.isLikelyLatest || typeof res.score === 'number') && (
+                    <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full shrink-0 border border-emerald-100 dark:border-emerald-900">
+                      {res.isLikelyLatest ? t('likely_latest_version') : `${getMatchPercentage(res.score)}%`}
+                    </span>
+                  )}
 
                   {isSelected && (
                     <kbd className="text-[10px] text-indigo-400 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 rounded px-1.5 py-0.5 shrink-0">↵</kbd>

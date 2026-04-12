@@ -1,15 +1,26 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { QuickLookModal } from '@/components/file-viewer/quick-look-modal';
 import { I18nProvider } from '@/lib/i18n';
+import { readLocalFileAsObjectUrl, revokeLocalFileUrl } from '@/lib/file-system/local-file-data';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
+  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
+}));
+
+vi.mock('@/lib/file-system/local-file-data', () => ({
+  readLocalFileAsObjectUrl: vi.fn(),
+  getLocalFileFallbackUrl: vi.fn((path?: string) => path ? `asset://${path}` : ''),
+  revokeLocalFileUrl: vi.fn(),
 }));
 
 const invokeMock = vi.mocked(invoke);
+const convertFileSrcMock = vi.mocked(convertFileSrc);
+const readLocalFileAsObjectUrlMock = vi.mocked(readLocalFileAsObjectUrl);
+const revokeLocalFileUrlMock = vi.mocked(revokeLocalFileUrl);
 
 const file = {
   path: '/docs/spec.md',
@@ -22,6 +33,9 @@ const file = {
 describe('QuickLookModal', () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    convertFileSrcMock.mockClear();
+    readLocalFileAsObjectUrlMock.mockReset();
+    revokeLocalFileUrlMock.mockReset();
     localStorage.clear();
   });
 
@@ -98,6 +112,42 @@ describe('QuickLookModal', () => {
     );
 
     expect(screen.getByText('Không thể xem trước')).toBeInTheDocument();
+  });
+
+  it('renders an image preview for image files', async () => {
+    readLocalFileAsObjectUrlMock.mockResolvedValue('blob:preview-url');
+
+    render(
+      <I18nProvider>
+        <QuickLookModal
+          isOpen
+          onClose={() => undefined}
+          file={{ ...file, name: 'hero.png', path: '/images/hero.png', content: '' }}
+        />
+      </I18nProvider>
+    );
+
+    const image = screen.getByRole('img', { name: /hero\.png/i });
+    await waitFor(() => {
+      expect(image).toHaveAttribute('src', 'blob:preview-url');
+    });
+  });
+
+  it('falls back to the asset preview url when reading local image bytes fails', async () => {
+    readLocalFileAsObjectUrlMock.mockRejectedValue(new Error('preview failed'));
+
+    render(
+      <I18nProvider>
+        <QuickLookModal
+          isOpen
+          onClose={() => undefined}
+          file={{ ...file, name: 'hero.png', path: '/images/hero.png', content: '' }}
+        />
+      </I18nProvider>
+    );
+
+    const image = await screen.findByRole('img', { name: /hero\.png/i });
+    expect(image).toHaveAttribute('src', 'asset:///images/hero.png');
   });
 
   it('keeps the modal open when native open fails', async () => {

@@ -1,9 +1,14 @@
 import { Search, Loader2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from '@/lib/i18n';
 
+export interface SearchRequest {
+    mode: 'lexical' | 'semantic';
+    trigger: 'change' | 'submit' | 'history' | 'clear';
+}
+
 interface SearchInputProps {
-    onSearch: (query: string) => void;
+    onSearch: (query: string, request?: SearchRequest) => void;
     isSearching: boolean;
 }
 
@@ -12,26 +17,65 @@ export function SearchInput({ onSearch, isSearching }: SearchInputProps) {
     const [query, setQuery] = useState('');
     const [history, setHistory] = useState<string[]>([]);
     const [showHistory, setShowHistory] = useState(false);
+    const lexicalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const semanticTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const hasInteractedRef = useRef(false);
 
     useEffect(() => {
         const saved = localStorage.getItem('search_history');
         if (saved) setHistory(JSON.parse(saved));
     }, []);
 
+    useEffect(() => {
+        return () => {
+            if (lexicalTimerRef.current) clearTimeout(lexicalTimerRef.current);
+            if (semanticTimerRef.current) clearTimeout(semanticTimerRef.current);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!hasInteractedRef.current) {
+            return;
+        }
+
+        if (lexicalTimerRef.current) clearTimeout(lexicalTimerRef.current);
+        if (semanticTimerRef.current) clearTimeout(semanticTimerRef.current);
+
+        const trimmed = query.trim();
+        if (!trimmed) {
+            onSearch('', { mode: 'lexical', trigger: 'clear' });
+            return;
+        }
+
+        lexicalTimerRef.current = setTimeout(() => {
+            onSearch(trimmed, { mode: 'lexical', trigger: 'change' });
+        }, 150);
+
+        semanticTimerRef.current = setTimeout(() => {
+            onSearch(trimmed, { mode: 'semantic', trigger: 'change' });
+        }, 450);
+    }, [query, onSearch]);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (query.trim()) {
-            const newHistory = [query, ...history.filter(h => h !== query)].slice(0, 5);
+        const trimmed = query.trim();
+        if (lexicalTimerRef.current) clearTimeout(lexicalTimerRef.current);
+        if (semanticTimerRef.current) clearTimeout(semanticTimerRef.current);
+
+        if (trimmed) {
+            const newHistory = [trimmed, ...history.filter(h => h !== trimmed)].slice(0, 5);
             setHistory(newHistory);
             localStorage.setItem('search_history', JSON.stringify(newHistory));
         }
-        onSearch(query);
+        onSearch(trimmed, { mode: trimmed ? 'semantic' : 'lexical', trigger: trimmed ? 'submit' : 'clear' });
         setShowHistory(false);
     };
 
     const handleHistoryClick = (q: string) => {
         setQuery(q);
-        onSearch(q);
+        if (lexicalTimerRef.current) clearTimeout(lexicalTimerRef.current);
+        if (semanticTimerRef.current) clearTimeout(semanticTimerRef.current);
+        onSearch(q, { mode: 'semantic', trigger: 'history' });
         setShowHistory(false);
     };
 
@@ -40,14 +84,16 @@ export function SearchInput({ onSearch, isSearching }: SearchInputProps) {
             <div className="relative" data-tour="search-bar">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-500" />
                 <input
-                    type="text"
+                    type="search"
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(e) => {
+                        hasInteractedRef.current = true;
+                        setQuery(e.target.value);
+                    }}
                     onFocus={() => setShowHistory(true)}
                     onBlur={() => setTimeout(() => setShowHistory(false), 200)}
                     placeholder={t('search_input_placeholder')}
                     className="w-full rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 pl-12 pr-14 py-4 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all text-lg placeholder:text-gray-500 dark:placeholder:text-gray-400 text-gray-900 dark:text-gray-100"
-                    disabled={isSearching}
                 />
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">
                     {isSearching ? (
