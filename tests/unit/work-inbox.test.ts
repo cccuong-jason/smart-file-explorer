@@ -74,7 +74,9 @@ describe('buildWorkInboxItems', () => {
     const items = buildWorkInboxItems(
       [createInsight()],
       {
+        dismissedItemKeys: [],
         lastInboxVisitAt: now - 60_000,
+        pinnedWorkspaceIds: [],
         recentFiles: [
           {
             path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
@@ -141,6 +143,48 @@ describe('buildWorkInboxItems', () => {
     expect(items.filter((item) => item.type === 'open_now')).toHaveLength(2);
   });
 
+  it('prioritizes pinned workspaces and filters dismissed items', () => {
+    const items = buildWorkInboxItems([
+      createInsight(),
+      createInsight({
+        id: 'workspace-2',
+        path: 'C:/Users/jason/Documents/Beta',
+        title: 'Beta',
+        ocrCount: 0,
+        recentCount: 0,
+        versionGroups: [],
+        topFile: {
+          path: 'C:/Users/jason/Documents/Beta/brief.docx',
+          name: 'brief.docx',
+          size: 100,
+          type: 'application/docx',
+          lastModified: now - 10_000,
+        },
+        importantFiles: [
+          {
+            path: 'C:/Users/jason/Documents/Beta/brief.docx',
+            name: 'brief.docx',
+            size: 100,
+            type: 'application/docx',
+            lastModified: now - 10_000,
+          },
+        ],
+        summary: 'brief.docx is the best document to open first in Beta.',
+        highlights: ['Likely latest version'],
+        rationale: [],
+        workspaceScore: 4,
+      }),
+    ], {
+      pinnedWorkspaceIds: ['workspace-2'],
+      dismissedItemKeys: ['workspace-1:open-now'],
+      recentFiles: [],
+    });
+
+    expect(items[0].workspaceId).toBe('workspace-2');
+    expect(items.some((item) => item.id === 'workspace-1:open-now')).toBe(false);
+    expect(items.find((item) => item.workspaceId === 'workspace-2' && item.type === 'open_now')?.isPinnedWorkspace).toBe(true);
+  });
+
   it('surfaces changed important files after the previous inbox visit', () => {
     const items = buildWorkInboxItems(
       [
@@ -171,6 +215,8 @@ describe('buildWorkInboxItems', () => {
       ],
       {
         lastInboxVisitAt: now - 86_400_000,
+        dismissedItemKeys: [],
+        pinnedWorkspaceIds: [],
         recentFiles: [],
       }
     );

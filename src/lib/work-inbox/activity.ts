@@ -11,6 +11,8 @@ export interface WorkInboxRecentFile {
 export interface WorkInboxActivitySnapshot {
   lastInboxVisitAt?: number;
   recentFiles: WorkInboxRecentFile[];
+  pinnedWorkspaceIds: string[];
+  dismissedItemKeys: string[];
 }
 
 function getStorage() {
@@ -45,25 +47,37 @@ function sanitizeRecentFiles(value: unknown) {
     .slice(0, 8);
 }
 
+function sanitizeStringList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0),
+  )).slice(0, 64);
+}
+
 export function getWorkInboxActivity(): WorkInboxActivitySnapshot {
   const storage = getStorage();
   if (!storage) {
-    return { recentFiles: [] };
+    return { recentFiles: [], pinnedWorkspaceIds: [], dismissedItemKeys: [] };
   }
 
   try {
     const raw = storage.getItem(WORK_INBOX_ACTIVITY_KEY);
     if (!raw) {
-      return { recentFiles: [] };
+      return { recentFiles: [], pinnedWorkspaceIds: [], dismissedItemKeys: [] };
     }
 
     const parsed = JSON.parse(raw) as Partial<WorkInboxActivitySnapshot>;
     return {
       lastInboxVisitAt: typeof parsed.lastInboxVisitAt === 'number' ? parsed.lastInboxVisitAt : undefined,
       recentFiles: sanitizeRecentFiles(parsed.recentFiles),
+      pinnedWorkspaceIds: sanitizeStringList(parsed.pinnedWorkspaceIds),
+      dismissedItemKeys: sanitizeStringList(parsed.dismissedItemKeys),
     };
   } catch {
-    return { recentFiles: [] };
+    return { recentFiles: [], pinnedWorkspaceIds: [], dismissedItemKeys: [] };
   }
 }
 
@@ -101,5 +115,35 @@ export function recordWorkInboxOpenFile(
   return saveWorkInboxActivity({
     ...snapshot,
     recentFiles,
+  });
+}
+
+export function togglePinnedWorkspace(workspaceId: string) {
+  const snapshot = getWorkInboxActivity();
+  const pinnedWorkspaceIds = snapshot.pinnedWorkspaceIds.includes(workspaceId)
+    ? snapshot.pinnedWorkspaceIds.filter((entry) => entry !== workspaceId)
+    : [workspaceId, ...snapshot.pinnedWorkspaceIds];
+
+  return saveWorkInboxActivity({
+    ...snapshot,
+    pinnedWorkspaceIds,
+  });
+}
+
+export function dismissWorkInboxItem(itemKey: string) {
+  const snapshot = getWorkInboxActivity();
+
+  return saveWorkInboxActivity({
+    ...snapshot,
+    dismissedItemKeys: [itemKey, ...snapshot.dismissedItemKeys.filter((entry) => entry !== itemKey)].slice(0, 64),
+  });
+}
+
+export function resetDismissedWorkInboxItems() {
+  const snapshot = getWorkInboxActivity();
+
+  return saveWorkInboxActivity({
+    ...snapshot,
+    dismissedItemKeys: [],
   });
 }
