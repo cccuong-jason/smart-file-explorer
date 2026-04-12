@@ -8,6 +8,7 @@ import type { WorkInboxItem } from '@/lib/work-inbox/items';
 interface WorkInboxPanelProps {
   items: WorkInboxItem[];
   onOpenFile: (file: any) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
 }
 
 function getItemIcon(type: WorkInboxItem['type']) {
@@ -27,7 +28,7 @@ function getItemIcon(type: WorkInboxItem['type']) {
   }
 }
 
-export function WorkInboxPanel({ items, onOpenFile }: WorkInboxPanelProps) {
+export function WorkInboxPanel({ items, onOpenFile, onOpenWorkspace }: WorkInboxPanelProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
@@ -38,6 +39,15 @@ export function WorkInboxPanel({ items, onOpenFile }: WorkInboxPanelProps) {
   if (items.length === 0) {
     return null;
   }
+
+  const handlePrimaryAction = (item: WorkInboxItem) => {
+    if (item.actionMode === 'open_workspace') {
+      onOpenWorkspace(item.workspaceId);
+      return;
+    }
+
+    onOpenFile(item.primaryFile);
+  };
 
   return (
     <section className="border-b border-[var(--ui-border)] bg-[var(--ui-surface)] px-6 py-4">
@@ -102,7 +112,7 @@ export function WorkInboxPanel({ items, onOpenFile }: WorkInboxPanelProps) {
 
                 <button
                   type="button"
-                  onClick={() => onOpenFile(item.primaryFile)}
+                  onClick={() => handlePrimaryAction(item)}
                   className="shrink-0 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--ui-primary)] transition-colors hover:bg-[var(--ui-primary-soft)]"
                 >
                   <span className="inline-flex items-center gap-2">

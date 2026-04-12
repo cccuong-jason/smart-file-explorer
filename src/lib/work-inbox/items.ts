@@ -12,6 +12,7 @@ export type WorkInboxItemType =
 export interface WorkInboxItem {
   id: string;
   type: WorkInboxItemType;
+  actionMode: 'open_file' | 'open_workspace';
   workspaceId: string;
   workspaceTitle: string;
   kindLabel: string;
@@ -49,6 +50,7 @@ function createContinueNowItem(
   return {
     id: `${insight.id}:continue:${matchedFile.path}`,
     type: 'continue_now',
+    actionMode: 'open_file',
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Continue now',
@@ -65,6 +67,7 @@ function createNeedsReviewItem(insight: FolderInsight, file: any): WorkInboxItem
   return {
     id: `${insight.id}:needs-review:${file.path}`,
     type: 'needs_review',
+    actionMode: 'open_file',
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Needs review',
@@ -81,6 +84,7 @@ function createOpenNowItem(insight: FolderInsight): WorkInboxItem {
   return {
     id: `${insight.id}:open-now`,
     type: 'open_now',
+    actionMode: 'open_file',
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Open now',
@@ -102,6 +106,7 @@ function createVersionConflictItem(insight: FolderInsight): WorkInboxItem | null
   return {
     id: `${insight.id}:version-conflict`,
     type: 'version_conflict',
+    actionMode: 'open_workspace',
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Version conflict',
@@ -122,6 +127,7 @@ function createOcrAttentionItem(insight: FolderInsight): WorkInboxItem | null {
   return {
     id: `${insight.id}:ocr-attention`,
     type: 'ocr_attention',
+    actionMode: 'open_workspace',
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'OCR attention',
@@ -143,6 +149,7 @@ function createRecentChangeItem(insight: FolderInsight): WorkInboxItem | null {
   return {
     id: `${insight.id}:recent-change`,
     type: 'recent_change',
+    actionMode: 'open_workspace',
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Recent change',

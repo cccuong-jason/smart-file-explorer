@@ -31,6 +31,7 @@ import { Settings, LayoutGrid, List } from 'lucide-react';
 import { FirstVisitTour } from '@/components/onboarding/first-visit-tour';
 import { StarterScanModal } from '@/components/onboarding/starter-scan-modal';
 import { WorkInboxPanel } from '@/components/folder-intelligence/work-inbox-panel';
+import { WorkspaceDrillInModal } from '@/components/folder-intelligence/workspace-drill-in-modal';
 import { useTranslation } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme-provider';
 import { FileGridItem } from '@/components/file-viewer/file-grid-item';
@@ -129,6 +130,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<'list'|'grid'>('list');
   const [files, setFiles] = useState<any[]>([]);
   const [selectedFile, setSelectedFile] = useState<any | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [isQuickLookOpen, setIsQuickLookOpen] = useState(false);
 
   // Scanning
@@ -899,6 +901,12 @@ export default function Home() {
     })
   ), [cloudIntelligenceEnabled, cloudStatus.configured, folderInsightAiCache, folderInsights]);
 
+  const selectedWorkspaceInsight = useMemo(() => (
+    selectedWorkspaceId
+      ? visibleFolderInsights.find((insight) => insight.id === selectedWorkspaceId) ?? null
+      : null
+  ), [selectedWorkspaceId, visibleFolderInsights]);
+
   const workInboxItems = useMemo(() => (
     buildWorkInboxItems(visibleFolderInsights, workInboxActivity)
   ), [visibleFolderInsights, workInboxActivity]);
@@ -1186,6 +1194,16 @@ export default function Home() {
         onClearCloudConfig={handleClearCloudConfig}
       />
       <QuickLookModal isOpen={isQuickLookOpen} onClose={() => setIsQuickLookOpen(false)} file={selectedFile} />
+      <WorkspaceDrillInModal
+        isOpen={Boolean(selectedWorkspaceInsight)}
+        insight={selectedWorkspaceInsight}
+        onClose={() => setSelectedWorkspaceId(null)}
+        onOpenFile={(file) => {
+          const matched = files.find((item) => item.path === file.path) ?? file;
+          setSelectedWorkspaceId(null);
+          setSelectedFile(matched);
+        }}
+      />
       <ResizableLayout
       sidebar={Sidebar}
       content={
@@ -1271,6 +1289,7 @@ export default function Home() {
                 const matched = files.find((item) => item.path === file.path) ?? file;
                 setSelectedFile(matched);
               }}
+              onOpenWorkspace={(workspaceId) => setSelectedWorkspaceId(workspaceId)}
             />
           )}
 

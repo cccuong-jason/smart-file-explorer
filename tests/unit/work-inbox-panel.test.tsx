@@ -9,6 +9,7 @@ const items = [
     id: '1',
     kindLabel: 'Continue now',
     type: 'open_now' as const,
+    actionMode: 'open_file' as const,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Open proposal-final.docx',
@@ -22,6 +23,7 @@ const items = [
     id: '2',
     kindLabel: 'Version conflict',
     type: 'version_conflict' as const,
+    actionMode: 'open_workspace' as const,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Resolve proposal versions',
@@ -35,6 +37,7 @@ const items = [
     id: '3',
     kindLabel: 'OCR attention',
     type: 'ocr_attention' as const,
+    actionMode: 'open_workspace' as const,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Review OCR candidates',
@@ -48,6 +51,7 @@ const items = [
     id: '4',
     kindLabel: 'Recent change',
     type: 'recent_change' as const,
+    actionMode: 'open_workspace' as const,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Check recent updates',
@@ -66,7 +70,7 @@ describe('WorkInboxPanel', () => {
 
     render(
       <I18nProvider>
-        <WorkInboxPanel items={items} onOpenFile={vi.fn()} />
+        <WorkInboxPanel items={items} onOpenFile={vi.fn()} onOpenWorkspace={vi.fn()} />
       </I18nProvider>
     );
 
@@ -83,12 +87,30 @@ describe('WorkInboxPanel', () => {
 
     render(
       <I18nProvider>
-        <WorkInboxPanel items={items} onOpenFile={vi.fn()} />
+        <WorkInboxPanel items={items} onOpenFile={vi.fn()} onOpenWorkspace={vi.fn()} />
       </I18nProvider>
     );
 
     expect(screen.getByText('Continue now')).toBeInTheDocument();
     expect(screen.getByText('Opened recently')).toBeInTheDocument();
     expect(screen.getByText('Likely latest version')).toBeInTheDocument();
+  });
+
+  it('routes workspace-oriented inbox items into the workspace drill-in instead of opening a file directly', async () => {
+    localStorage.setItem('i18n_lang', 'en');
+    const user = userEvent.setup();
+    const onOpenFile = vi.fn();
+    const onOpenWorkspace = vi.fn();
+
+    render(
+      <I18nProvider>
+        <WorkInboxPanel items={items} onOpenFile={onOpenFile} onOpenWorkspace={onOpenWorkspace} />
+      </I18nProvider>
+    );
+
+    await user.click(screen.getByRole('button', { name: /open latest file/i }));
+
+    expect(onOpenWorkspace).toHaveBeenCalledWith('workspace-1');
+    expect(onOpenFile).not.toHaveBeenCalled();
   });
 });
