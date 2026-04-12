@@ -89,7 +89,14 @@ describe('WorkspaceDrillInModal', () => {
 
     render(
       <I18nProvider>
-        <WorkspaceDrillInModal isOpen insight={insight} onClose={vi.fn()} onOpenFile={onOpenFile} />
+        <WorkspaceDrillInModal
+          isOpen
+          insight={insight}
+          isPinned={false}
+          onClose={vi.fn()}
+          onOpenFile={onOpenFile}
+          onTogglePin={vi.fn()}
+        />
       </I18nProvider>
     );
 
@@ -109,7 +116,14 @@ describe('WorkspaceDrillInModal', () => {
 
     render(
       <I18nProvider>
-        <WorkspaceDrillInModal isOpen insight={insight} onClose={onClose} onOpenFile={vi.fn()} />
+        <WorkspaceDrillInModal
+          isOpen
+          insight={insight}
+          isPinned={false}
+          onClose={onClose}
+          onOpenFile={vi.fn()}
+          onTogglePin={vi.fn()}
+        />
       </I18nProvider>
     );
 

@@ -10,6 +10,8 @@ const items = [
     kindLabel: 'Continue now',
     type: 'open_now' as const,
     actionMode: 'open_file' as const,
+    stateKey: '1:state',
+    isPinnedWorkspace: false,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Open proposal-final.docx',
@@ -24,6 +26,8 @@ const items = [
     kindLabel: 'Version conflict',
     type: 'version_conflict' as const,
     actionMode: 'open_workspace' as const,
+    stateKey: '2:state',
+    isPinnedWorkspace: false,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Resolve proposal versions',
@@ -38,6 +42,8 @@ const items = [
     kindLabel: 'OCR attention',
     type: 'ocr_attention' as const,
     actionMode: 'open_workspace' as const,
+    stateKey: '3:state',
+    isPinnedWorkspace: false,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Review OCR candidates',
@@ -52,6 +58,8 @@ const items = [
     kindLabel: 'Recent change',
     type: 'recent_change' as const,
     actionMode: 'open_workspace' as const,
+    stateKey: '4:state',
+    isPinnedWorkspace: false,
     workspaceId: 'workspace-1',
     workspaceTitle: 'Q2',
     title: 'Check recent updates',
@@ -70,7 +78,13 @@ describe('WorkInboxPanel', () => {
 
     render(
       <I18nProvider>
-        <WorkInboxPanel items={items} onOpenFile={vi.fn()} onOpenWorkspace={vi.fn()} />
+        <WorkInboxPanel
+          items={items}
+          onOpenFile={vi.fn()}
+          onOpenWorkspace={vi.fn()}
+          onDismissItem={vi.fn()}
+          onToggleWorkspacePin={vi.fn()}
+        />
       </I18nProvider>
     );
 
@@ -87,7 +101,13 @@ describe('WorkInboxPanel', () => {
 
     render(
       <I18nProvider>
-        <WorkInboxPanel items={items} onOpenFile={vi.fn()} onOpenWorkspace={vi.fn()} />
+        <WorkInboxPanel
+          items={items}
+          onOpenFile={vi.fn()}
+          onOpenWorkspace={vi.fn()}
+          onDismissItem={vi.fn()}
+          onToggleWorkspacePin={vi.fn()}
+        />
       </I18nProvider>
     );
 
@@ -104,7 +124,13 @@ describe('WorkInboxPanel', () => {
 
     render(
       <I18nProvider>
-        <WorkInboxPanel items={items} onOpenFile={onOpenFile} onOpenWorkspace={onOpenWorkspace} />
+        <WorkInboxPanel
+          items={items}
+          onOpenFile={onOpenFile}
+          onOpenWorkspace={onOpenWorkspace}
+          onDismissItem={vi.fn()}
+          onToggleWorkspacePin={vi.fn()}
+        />
       </I18nProvider>
     );
 
@@ -112,5 +138,30 @@ describe('WorkInboxPanel', () => {
 
     expect(onOpenWorkspace).toHaveBeenCalledWith('workspace-1');
     expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it('lets users pin a workspace and dismiss an inbox item', async () => {
+    localStorage.setItem('i18n_lang', 'en');
+    const user = userEvent.setup();
+    const onDismissItem = vi.fn();
+    const onToggleWorkspacePin = vi.fn();
+
+    render(
+      <I18nProvider>
+        <WorkInboxPanel
+          items={items}
+          onOpenFile={vi.fn()}
+          onOpenWorkspace={vi.fn()}
+          onDismissItem={onDismissItem}
+          onToggleWorkspacePin={onToggleWorkspacePin}
+        />
+      </I18nProvider>
+    );
+
+    await user.click(screen.getAllByRole('button', { name: /pin workspace/i })[0]);
+    await user.click(screen.getAllByRole('button', { name: /dismiss recommendation/i })[0]);
+
+    expect(onToggleWorkspacePin).toHaveBeenCalledWith('workspace-1');
+    expect(onDismissItem).toHaveBeenCalledWith('1:state');
   });
 });

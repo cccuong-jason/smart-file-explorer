@@ -48,9 +48,12 @@ import {
 import { buildFolderInsights } from '@/lib/folder-intelligence/workspaces';
 import { buildWorkInboxItems } from '@/lib/work-inbox/items';
 import {
+  dismissWorkInboxItem,
   getWorkInboxActivity,
   recordWorkInboxOpenFile,
   recordWorkInboxVisit,
+  resetDismissedWorkInboxItems,
+  togglePinnedWorkspace,
   type WorkInboxActivitySnapshot,
 } from '@/lib/work-inbox/activity';
 import {
@@ -189,7 +192,11 @@ export default function Home() {
     model: DEFAULT_CLOUD_INTELLIGENCE_MODEL,
   });
   const [folderInsightAiCache, setFolderInsightAiCache] = useState<Record<string, FolderInsightAiCacheEntry>>({});
-  const [workInboxActivity, setWorkInboxActivity] = useState<WorkInboxActivitySnapshot>({ recentFiles: [] });
+  const [workInboxActivity, setWorkInboxActivity] = useState<WorkInboxActivitySnapshot>({
+    recentFiles: [],
+    pinnedWorkspaceIds: [],
+    dismissedItemKeys: [],
+  });
   const pendingFolderInsightAiRef = useRef(new Set<string>());
   const failedFolderInsightAiRef = useRef(new Set<string>());
   const lastRecordedOpenPathRef = useRef<string | null>(null);
@@ -910,6 +917,7 @@ export default function Home() {
   const workInboxItems = useMemo(() => (
     buildWorkInboxItems(visibleFolderInsights, workInboxActivity)
   ), [visibleFolderInsights, workInboxActivity]);
+  const hiddenWorkInboxItemCount = workInboxActivity.dismissedItemKeys.length;
 
   useEffect(() => {
     if (searchQuery.trim() || workInboxItems.length === 0 || hasRecordedInboxVisitRef.current) {
@@ -935,6 +943,29 @@ export default function Home() {
     lastRecordedOpenPathRef.current = selectedFile.path;
     setWorkInboxActivity(updated);
   }, [selectedFile, visibleFolderInsights]);
+
+  const handleDismissWorkInboxItem = (itemKey: string) => {
+    const updated = dismissWorkInboxItem(itemKey);
+    setWorkInboxActivity(updated);
+    toast(t('work_inbox_dismissed'), 'info');
+  };
+
+  const handleResetDismissedWorkInboxItems = () => {
+    const updated = resetDismissedWorkInboxItems();
+    setWorkInboxActivity(updated);
+    toast(t('work_inbox_hidden_restored'), 'success');
+  };
+
+  const handleTogglePinnedWorkspace = (workspaceId: string) => {
+    const updated = togglePinnedWorkspace(workspaceId);
+    setWorkInboxActivity(updated);
+    toast(
+      updated.pinnedWorkspaceIds.includes(workspaceId)
+        ? t('work_inbox_pin_success')
+        : t('work_inbox_unpin_success'),
+      'success',
+    );
+  };
 
   // --- Filtering & Sorting ---
   const filteredAndSortedFiles = useMemo(() => {
@@ -1203,6 +1234,8 @@ export default function Home() {
           setSelectedWorkspaceId(null);
           setSelectedFile(matched);
         }}
+        isPinned={selectedWorkspaceInsight ? workInboxActivity.pinnedWorkspaceIds.includes(selectedWorkspaceInsight.id) : false}
+        onTogglePin={handleTogglePinnedWorkspace}
       />
       <ResizableLayout
       sidebar={Sidebar}
@@ -1290,6 +1323,10 @@ export default function Home() {
                 setSelectedFile(matched);
               }}
               onOpenWorkspace={(workspaceId) => setSelectedWorkspaceId(workspaceId)}
+              onDismissItem={handleDismissWorkInboxItem}
+              onToggleWorkspacePin={handleTogglePinnedWorkspace}
+              hiddenItemCount={hiddenWorkInboxItemCount}
+              onResetDismissedItems={hiddenWorkInboxItemCount > 0 ? handleResetDismissedWorkInboxItems : undefined}
             />
           )}
 
