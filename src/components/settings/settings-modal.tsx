@@ -26,9 +26,9 @@ interface Props {
   cloudIntelligenceEnabled: boolean;
   onCloudIntelligenceEnabledChange: (enabled: boolean) => void;
   cloudStatus: CloudIntelligenceStatus;
-  onSaveCloudConfig: (input: SaveCloudIntelligenceConfigInput) => Promise<void>;
-  onTestCloudConnection: (input: TestCloudIntelligenceConnectionInput) => Promise<void>;
-  onClearCloudConfig: () => Promise<void>;
+  onSaveCloudConfig: (input: SaveCloudIntelligenceConfigInput) => Promise<CloudIntelligenceStatus>;
+  onTestCloudConnection: (input: TestCloudIntelligenceConnectionInput) => Promise<CloudIntelligenceStatus>;
+  onClearCloudConfig: () => Promise<CloudIntelligenceStatus>;
 }
 
 export function SettingsModal({
@@ -165,16 +165,23 @@ export function SettingsModal({
   };
 
   const handleTestCloudConnection = async () => {
+    if (!cloudApiKey.trim() && !cloudStatus.configured) {
+      const message = t('privacy_cloud_status_not_connected');
+      setCloudFeedback({ tone: 'info', message });
+      toast(message, 'info');
+      return;
+    }
+
     try {
       setCloudActionState('testing');
       setCloudFeedback(null);
-      await onTestCloudConnection({
+      const nextStatus = await onTestCloudConnection({
         apiKey: cloudApiKey.trim() || undefined,
         model: cloudModel.trim() || undefined,
       });
-      const message = t('privacy_cloud_test_success');
-      setCloudFeedback({ tone: 'success', message });
-      toast(message, 'success');
+      const message = nextStatus.lastError || t('privacy_cloud_test_success');
+      setCloudFeedback({ tone: nextStatus.lastError ? 'error' : 'success', message });
+      toast(message, nextStatus.lastError ? 'error' : 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCloudFeedback({ tone: 'error', message });
@@ -193,12 +200,12 @@ export function SettingsModal({
     try {
       setCloudActionState('saving');
       setCloudFeedback(null);
-      await onSaveCloudConfig({
+      const nextStatus = await onSaveCloudConfig({
         apiKey: cloudApiKey.trim(),
         model: cloudModel.trim() || DEFAULT_CLOUD_INTELLIGENCE_MODEL,
       });
       setCloudApiKey('');
-      const message = t('privacy_cloud_save_success');
+      const message = nextStatus.lastError || t('privacy_cloud_save_success');
       setCloudFeedback({ tone: 'success', message });
       toast(message, 'success');
     } catch (error) {
@@ -505,6 +512,14 @@ export function SettingsModal({
                     {t('privacy_cloud_last_tested')}: {new Date(cloudStatus.lastTestedAt).toLocaleString()}
                   </p>
                 )}
+
+                <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                  {cloudApiKey.trim()
+                    ? t('privacy_cloud_testing_typed_key')
+                    : cloudStatus.configured
+                      ? t('privacy_cloud_testing_saved_key')
+                      : t('privacy_cloud_testing_no_key')}
+                </p>
 
                 {cloudFeedback && (
                   <div

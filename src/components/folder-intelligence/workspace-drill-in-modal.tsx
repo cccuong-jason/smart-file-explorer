@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { ArrowRight, Clock3, FileStack, FolderKanban, Pin, ScanSearch, Star, X } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import type { FolderInsight } from '@/lib/folder-intelligence/workspaces';
+import { getWorkspaceOpenNowItemId } from '@/lib/work-inbox/items';
 
 interface WorkspaceDrillInModalProps {
   isOpen: boolean;
@@ -11,7 +12,7 @@ interface WorkspaceDrillInModalProps {
   isPinned: boolean;
   onClose: () => void;
   onOpenFile: (file: any) => void;
-  onTogglePin: (workspaceId: string) => void;
+  onTogglePin: (itemId: string) => void;
 }
 
 export function WorkspaceDrillInModal({
@@ -41,6 +42,7 @@ export function WorkspaceDrillInModal({
   }
 
   const versionGroup = insight.versionGroups[0];
+  const pinnedItemId = getWorkspaceOpenNowItemId(insight.id);
 
   return (
     <div
@@ -87,7 +89,7 @@ export function WorkspaceDrillInModal({
         <div className="px-6 pb-4">
           <button
             type="button"
-            onClick={() => onTogglePin(insight.id)}
+            onClick={() => onTogglePin(pinnedItemId)}
             className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
               isPinned
                 ? 'border-[var(--ui-primary-border)] bg-[var(--ui-primary-soft)] text-[var(--ui-primary)]'
@@ -95,7 +97,7 @@ export function WorkspaceDrillInModal({
             }`}
           >
             <Pin className="h-3.5 w-3.5" />
-            {isPinned ? t('work_inbox_unpin_workspace') : t('work_inbox_pin_workspace')}
+            {isPinned ? t('work_inbox_unpin_item') : t('work_inbox_pin_item')}
           </button>
         </div>
 

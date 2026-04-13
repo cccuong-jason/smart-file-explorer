@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export const CLOUD_INTELLIGENCE_ENABLED_KEY = 'sfe_cloud_intelligence_enabled';
-export const DEFAULT_CLOUD_INTELLIGENCE_MODEL = 'qwen/qwen3.6-plus:free';
+export const DEFAULT_CLOUD_INTELLIGENCE_MODEL = 'qwen/qwen3.6-plus';
 
 export interface CloudIntelligenceStatus {
   configured: boolean;

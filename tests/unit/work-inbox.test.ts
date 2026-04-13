@@ -76,7 +76,7 @@ describe('buildWorkInboxItems', () => {
       {
         dismissedItemKeys: [],
         lastInboxVisitAt: now - 60_000,
-        pinnedWorkspaceIds: [],
+        pinnedItemIds: [],
         recentFiles: [
           {
             path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
@@ -175,14 +175,14 @@ describe('buildWorkInboxItems', () => {
         workspaceScore: 4,
       }),
     ], {
-      pinnedWorkspaceIds: ['workspace-2'],
+      pinnedItemIds: ['workspace-2:open-now'],
       dismissedItemKeys: ['workspace-1:open-now'],
       recentFiles: [],
     });
 
     expect(items[0].workspaceId).toBe('workspace-2');
     expect(items.some((item) => item.id === 'workspace-1:open-now')).toBe(false);
-    expect(items.find((item) => item.workspaceId === 'workspace-2' && item.type === 'open_now')?.isPinnedWorkspace).toBe(true);
+    expect(items.find((item) => item.workspaceId === 'workspace-2' && item.type === 'open_now')?.isPinned).toBe(true);
   });
 
   it('surfaces changed important files after the previous inbox visit', () => {
@@ -216,7 +216,7 @@ describe('buildWorkInboxItems', () => {
       {
         lastInboxVisitAt: now - 86_400_000,
         dismissedItemKeys: [],
-        pinnedWorkspaceIds: [],
+        pinnedItemIds: [],
         recentFiles: [],
       }
     );

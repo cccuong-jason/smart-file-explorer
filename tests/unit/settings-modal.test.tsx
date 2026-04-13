@@ -23,7 +23,7 @@ describe('SettingsModal cloud intelligence', () => {
             cloudStatus={{
               configured: false,
               source: 'user',
-              model: 'qwen/qwen3.6-plus:free',
+              model: 'qwen/qwen3.6-plus',
             }}
             onSaveCloudConfig={vi.fn()}
             onTestCloudConnection={vi.fn()}
@@ -37,7 +37,7 @@ describe('SettingsModal cloud intelligence', () => {
 
     expect(screen.getByRole('heading', { name: /Cloud intelligence/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/OpenRouter API key/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Model/i)).toHaveValue('qwen/qwen3.6-plus:free');
+    expect(screen.getByLabelText(/Model/i)).toHaveValue('qwen/qwen3.6-plus');
     expect(screen.getByRole('button', { name: /Test connection/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Save key/i })).toBeInTheDocument();
   });
@@ -59,7 +59,7 @@ describe('SettingsModal cloud intelligence', () => {
             cloudStatus={{
               configured: false,
               source: 'none',
-              model: 'qwen/qwen3.6-plus:free',
+              model: 'qwen/qwen3.6-plus',
             }}
             onSaveCloudConfig={vi.fn()}
             onTestCloudConnection={onTestCloudConnection}
@@ -70,6 +70,7 @@ describe('SettingsModal cloud intelligence', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /cloud intelligence/i }));
+    await user.type(screen.getByLabelText(/OpenRouter API key/i), 'sk-or-test-key');
     await user.click(screen.getByRole('button', { name: /test connection/i }));
 
     await waitFor(() => {

@@ -9,10 +9,17 @@ interface Toast {
     id: string;
     message: string;
     type: ToastType;
+    actionLabel?: string;
+    onAction?: () => void;
+}
+
+interface ToastOptions {
+    actionLabel?: string;
+    onAction?: () => void;
 }
 
 interface ToastContextType {
-    toast: (message: string, type?: ToastType) => void;
+    toast: (message: string, type?: ToastType, options?: ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -28,18 +35,18 @@ export function useToast() {
 export function ToastProvider({ children }: { children: ReactNode }) {
     const [toasts, setToasts] = useState<Toast[]>([]);
 
-    const addToast = useCallback((message: string, type: ToastType = 'info') => {
+    const removeToast = useCallback((id: string) => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, []);
+
+    const addToast = useCallback((message: string, type: ToastType = 'info', options?: ToastOptions) => {
         const id = Math.random().toString(36).substring(2, 9);
-        setToasts((prev) => [...prev, { id, message, type }]);
+        setToasts((prev) => [...prev, { id, message, type, actionLabel: options?.actionLabel, onAction: options?.onAction }]);
 
         setTimeout(() => {
             removeToast(id);
         }, 3000);
-    }, []);
-
-    const removeToast = useCallback((id: string) => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, []);
+    }, [removeToast]);
 
     const getIcon = (type: ToastType) => {
         switch (type) {
@@ -53,7 +60,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     return (
         <ToastContext.Provider value={{ toast: addToast }}>
             {children}
-            <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+            <div data-testid="toast-viewport" className="fixed bottom-4 right-4 z-[300] flex flex-col gap-2 pointer-events-none">
                 {toasts.map((t) => (
                     <div
                         key={t.id}
@@ -61,6 +68,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                     >
                         {getIcon(t.type)}
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-100 flex-1">{t.message}</p>
+                        {t.actionLabel && t.onAction && (
+                            <button
+                                onClick={() => {
+                                    t.onAction?.();
+                                    removeToast(t.id);
+                                }}
+                                className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-semibold text-[var(--ui-primary)] transition-colors hover:bg-[var(--ui-primary-soft)] dark:border-gray-700"
+                            >
+                                {t.actionLabel}
+                            </button>
+                        )}
                         <button
                             onClick={() => removeToast(t.id)}
                             className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
