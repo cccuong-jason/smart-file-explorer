@@ -68,6 +68,21 @@ const insight = {
           size: 100,
           type: 'application/docx',
           lastModified: Date.now(),
+          isLikelyLatest: true,
+        },
+        {
+          path: 'C:/Users/jason/Documents/Acme/Q2/proposal-v2.docx',
+          name: 'proposal-v2.docx',
+          size: 100,
+          type: 'application/docx',
+          lastModified: Date.now() - 10_000,
+        },
+        {
+          path: 'C:/Users/jason/Documents/Acme/Q2/proposal-draft.docx',
+          name: 'proposal-draft.docx',
+          size: 100,
+          type: 'application/docx',
+          lastModified: Date.now() - 20_000,
         },
       ],
     },
@@ -108,6 +123,35 @@ describe('WorkspaceDrillInModal', () => {
 
     await user.click(screen.getAllByRole('button', { name: /proposal-final\.docx/i })[0]);
     expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ name: 'proposal-final.docx' }));
+  });
+
+  it('lets users expand version alternates and open a specific alternate file', async () => {
+    localStorage.setItem('i18n_lang', 'en');
+    const onOpenFile = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <I18nProvider>
+        <WorkspaceDrillInModal
+          isOpen
+          insight={insight}
+          isPinned={false}
+          onClose={vi.fn()}
+          onOpenFile={onOpenFile}
+          onTogglePin={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    await user.click(screen.getByRole('button', { name: /show alternates/i }));
+
+    expect(screen.getByText(/likely current/i)).toBeInTheDocument();
+    expect(screen.getByText(/proposal-v2\.docx/i)).toBeInTheDocument();
+    expect(screen.getByText(/proposal-draft\.docx/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /proposal-v2\.docx/i }));
+
+    expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ name: 'proposal-v2.docx' }));
   });
 
   it('closes from escape or backdrop interactions', () => {

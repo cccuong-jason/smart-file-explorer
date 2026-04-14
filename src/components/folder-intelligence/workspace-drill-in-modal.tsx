@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
-import { ArrowRight, Clock3, FileStack, FolderKanban, Pin, ScanSearch, Star, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowRight, ChevronDown, ChevronUp, Clock3, FileStack, FolderKanban, Pin, ScanSearch, Star, X } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import type { FolderInsight } from '@/lib/folder-intelligence/workspaces';
 import { getWorkspaceOpenNowItemId } from '@/lib/work-inbox/items';
@@ -24,6 +24,7 @@ export function WorkspaceDrillInModal({
   onTogglePin,
 }: WorkspaceDrillInModalProps) {
   const { t } = useTranslation();
+  const [showAllVersions, setShowAllVersions] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -37,12 +38,19 @@ export function WorkspaceDrillInModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setShowAllVersions(false);
+    }
+  }, [isOpen, insight?.id]);
+
   if (!isOpen || !insight) {
     return null;
   }
 
   const versionGroup = insight.versionGroups[0];
   const pinnedItemId = getWorkspaceOpenNowItemId(insight.id);
+  const alternateFiles = versionGroup?.files.slice(1) ?? [];
 
   return (
     <div
@@ -161,11 +169,23 @@ export function WorkspaceDrillInModal({
             <div className="space-y-4">
               {versionGroup && (
                 <section className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 shadow-sm">
-                  <div className="flex items-center gap-2 text-[var(--ui-warning)]">
-                    <FileStack className="h-4 w-4" />
-                    <h3 className="text-sm font-bold uppercase tracking-wider">
-                      {t('workspace_drill_in_version_groups')}
-                    </h3>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 text-[var(--ui-warning)]">
+                      <FileStack className="h-4 w-4" />
+                      <h3 className="text-sm font-bold uppercase tracking-wider">
+                        {t('workspace_drill_in_version_groups')}
+                      </h3>
+                    </div>
+                    {alternateFiles.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllVersions((value) => !value)}
+                        className="inline-flex items-center gap-1 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-2.5 py-1 text-[11px] font-semibold text-gray-600 transition-colors hover:bg-[var(--ui-surface)] dark:text-gray-300"
+                      >
+                        {showAllVersions ? t('workspace_drill_in_hide_alternates') : t('workspace_drill_in_show_alternates')}
+                        {showAllVersions ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      </button>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -176,12 +196,51 @@ export function WorkspaceDrillInModal({
                       <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
                         {versionGroup.latestFile.name}
                       </p>
-                      <p className="mt-1 text-xs text-[var(--ui-warning)]">
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className="rounded-full bg-[var(--ui-warning-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ui-warning)]">
+                          {t('workspace_drill_in_likely_current')}
+                        </span>
+                        <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-300">
+                          {t('workspace_drill_in_latest_modified')}
+                        </span>
+                        {versionGroup.latestFile.isLikelyLatest && (
+                          <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-300">
+                            {t('workspace_drill_in_latest_version_signal')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 text-xs text-[var(--ui-warning)]">
                         {t('folder_intelligence_alternates', { count: versionGroup.variantCount })}
                       </p>
                     </div>
                     <ArrowRight className="h-4 w-4 shrink-0 text-[var(--ui-warning)]" />
                   </button>
+
+                  {showAllVersions && alternateFiles.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        {t('workspace_drill_in_alternate_versions')}
+                      </p>
+                      {alternateFiles.map((file) => (
+                        <button
+                          key={file.path}
+                          type="button"
+                          onClick={() => onOpenFile(file)}
+                          className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-3 py-2.5 text-left"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {file.name}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              {new Date(file.lastModified).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </section>
               )}
 
