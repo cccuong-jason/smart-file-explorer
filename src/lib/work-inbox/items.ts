@@ -14,7 +14,7 @@ export interface WorkInboxItem {
   stateKey: string;
   type: WorkInboxItemType;
   actionMode: 'open_file' | 'open_workspace';
-  isPinnedWorkspace: boolean;
+  isPinned: boolean;
   workspaceId: string;
   workspaceTitle: string;
   kindLabel: string;
@@ -24,6 +24,10 @@ export interface WorkInboxItem {
   evidence: string[];
   primaryFile: any;
   priority: number;
+}
+
+export function getWorkspaceOpenNowItemId(workspaceId: string) {
+  return `${workspaceId}:open-now`;
 }
 
 function createStateKey(id: string, primaryFile: any, extras: Array<string | number> = []) {
@@ -59,7 +63,6 @@ function createContinueNowItem(
   recentFile: WorkInboxRecentFile,
   matchedFile: any,
   insight: FolderInsight,
-  isPinnedWorkspace: boolean,
 ): WorkInboxItem {
   const id = `${insight.id}:continue:${matchedFile.path}`;
   return {
@@ -67,7 +70,7 @@ function createContinueNowItem(
     stateKey: createStateKey(id, matchedFile, [recentFile.lastOpenedAt]),
     type: 'continue_now',
     actionMode: 'open_file',
-    isPinnedWorkspace,
+    isPinned: false,
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Continue now',
@@ -87,7 +90,7 @@ function createNeedsReviewItem(insight: FolderInsight, file: any): WorkInboxItem
     stateKey: createStateKey(id, file),
     type: 'needs_review',
     actionMode: 'open_file',
-    isPinnedWorkspace: false,
+    isPinned: false,
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Needs review',
@@ -100,14 +103,14 @@ function createNeedsReviewItem(insight: FolderInsight, file: any): WorkInboxItem
   };
 }
 
-function createOpenNowItem(insight: FolderInsight, isPinnedWorkspace: boolean): WorkInboxItem {
-  const id = `${insight.id}:open-now`;
+function createOpenNowItem(insight: FolderInsight): WorkInboxItem {
+  const id = getWorkspaceOpenNowItemId(insight.id);
   return {
     id,
     stateKey: createStateKey(id, insight.topFile),
     type: 'open_now',
     actionMode: 'open_file',
-    isPinnedWorkspace,
+    isPinned: false,
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Open now',
@@ -116,11 +119,11 @@ function createOpenNowItem(insight: FolderInsight, isPinnedWorkspace: boolean): 
     actionLabel: 'Open document',
     evidence: buildEvidence(insight.topFile, insight.rationale?.slice(0, 1) ?? []),
     primaryFile: insight.topFile,
-    priority: 100 + Math.round(insight.workspaceScore) + (isPinnedWorkspace ? 40 : 0),
+    priority: 100 + Math.round(insight.workspaceScore),
   };
 }
 
-function createVersionConflictItem(insight: FolderInsight, isPinnedWorkspace: boolean): WorkInboxItem | null {
+function createVersionConflictItem(insight: FolderInsight): WorkInboxItem | null {
   const group = insight.versionGroups[0];
   if (!group) {
     return null;
@@ -132,7 +135,7 @@ function createVersionConflictItem(insight: FolderInsight, isPinnedWorkspace: bo
     stateKey: createStateKey(id, group.latestFile, [group.variantCount]),
     type: 'version_conflict',
     actionMode: 'open_workspace',
-    isPinnedWorkspace,
+    isPinned: false,
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Version conflict',
@@ -141,11 +144,11 @@ function createVersionConflictItem(insight: FolderInsight, isPinnedWorkspace: bo
     actionLabel: 'Open latest file',
     evidence: buildEvidence(group.latestFile, [`${group.variantCount} alternates detected`]),
     primaryFile: group.latestFile,
-    priority: 80 + group.variantCount * 2 + (isPinnedWorkspace ? 20 : 0),
+    priority: 80 + group.variantCount * 2,
   };
 }
 
-function createOcrAttentionItem(insight: FolderInsight, isPinnedWorkspace: boolean): WorkInboxItem | null {
+function createOcrAttentionItem(insight: FolderInsight): WorkInboxItem | null {
   if (insight.ocrCount <= 0) {
     return null;
   }
@@ -156,7 +159,7 @@ function createOcrAttentionItem(insight: FolderInsight, isPinnedWorkspace: boole
     stateKey: createStateKey(id, insight.topFile, [insight.ocrCount]),
     type: 'ocr_attention',
     actionMode: 'open_workspace',
-    isPinnedWorkspace,
+    isPinned: false,
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'OCR attention',
@@ -165,11 +168,11 @@ function createOcrAttentionItem(insight: FolderInsight, isPinnedWorkspace: boole
     actionLabel: 'Open workspace file',
     evidence: [`${insight.ocrCount} scanned ${insight.ocrCount === 1 ? 'file is' : 'files are'} still incomplete`],
     primaryFile: insight.topFile,
-    priority: 60 + insight.ocrCount + (isPinnedWorkspace ? 16 : 0),
+    priority: 60 + insight.ocrCount,
   };
 }
 
-function createRecentChangeItem(insight: FolderInsight, isPinnedWorkspace: boolean): WorkInboxItem | null {
+function createRecentChangeItem(insight: FolderInsight): WorkInboxItem | null {
   const recentFile = insight.recentFiles[0];
   if (!recentFile || insight.recentCount <= 0) {
     return null;
@@ -181,7 +184,7 @@ function createRecentChangeItem(insight: FolderInsight, isPinnedWorkspace: boole
     stateKey: createStateKey(id, recentFile, [insight.recentCount]),
     type: 'recent_change',
     actionMode: 'open_workspace',
-    isPinnedWorkspace,
+    isPinned: false,
     workspaceId: insight.id,
     workspaceTitle: insight.title,
     kindLabel: 'Recent change',
@@ -190,7 +193,7 @@ function createRecentChangeItem(insight: FolderInsight, isPinnedWorkspace: boole
     actionLabel: 'Open changed file',
     evidence: buildEvidence(recentFile, ['Changed in the last 7 days']),
     primaryFile: recentFile,
-    priority: 40 + insight.recentCount + (isPinnedWorkspace ? 14 : 0),
+    priority: 40 + insight.recentCount,
   };
 }
 
@@ -225,7 +228,6 @@ function createContinueNowItems(insights: FolderInsight[], activity?: WorkInboxA
         recentFile,
         matchedFile,
         insight,
-        activity?.pinnedWorkspaceIds?.includes(insight.id) ?? false,
       );
     })
     .filter((item): item is WorkInboxItem => Boolean(item))
@@ -248,10 +250,6 @@ function createNeedsReviewItems(insights: FolderInsight[], activity?: WorkInboxA
       }
 
       const item = createNeedsReviewItem(insight, changedImportantFile);
-      if (activity?.pinnedWorkspaceIds?.includes(insight.id)) {
-        item.priority += 24;
-        item.isPinnedWorkspace = true;
-      }
       return item;
     })
     .filter((item): item is WorkInboxItem => Boolean(item))
@@ -261,26 +259,25 @@ function createNeedsReviewItems(insights: FolderInsight[], activity?: WorkInboxA
 export function buildWorkInboxItems(insights: FolderInsight[], activity?: WorkInboxActivitySnapshot) {
   const items: WorkInboxItem[] = [];
   const dismissedItemKeys = new Set(activity?.dismissedItemKeys ?? []);
-  const pinnedWorkspaceIds = new Set(activity?.pinnedWorkspaceIds ?? []);
+  const pinnedItemIds = new Set(activity?.pinnedItemIds ?? []);
 
   items.push(...createContinueNowItems(insights, activity));
   items.push(...createNeedsReviewItems(insights, activity));
 
   for (const insight of insights) {
-    const isPinnedWorkspace = pinnedWorkspaceIds.has(insight.id);
-    items.push(createOpenNowItem(insight, isPinnedWorkspace));
+    items.push(createOpenNowItem(insight));
 
-    const versionConflictItem = createVersionConflictItem(insight, isPinnedWorkspace);
+    const versionConflictItem = createVersionConflictItem(insight);
     if (versionConflictItem) {
       items.push(versionConflictItem);
     }
 
-    const ocrAttentionItem = createOcrAttentionItem(insight, isPinnedWorkspace);
+    const ocrAttentionItem = createOcrAttentionItem(insight);
     if (ocrAttentionItem) {
       items.push(ocrAttentionItem);
     }
 
-    const recentChangeItem = createRecentChangeItem(insight, isPinnedWorkspace);
+    const recentChangeItem = createRecentChangeItem(insight);
     if (recentChangeItem) {
       items.push(recentChangeItem);
     }
@@ -291,6 +288,14 @@ export function buildWorkInboxItems(insights: FolderInsight[], activity?: WorkIn
     .filter((item, index, collection) => (
       collection.findIndex((candidate) => candidate.id === item.id) === index
     ))
+    .map((item) => {
+      const isPinned = pinnedItemIds.has(item.id);
+      return {
+        ...item,
+        isPinned,
+        priority: item.priority + (isPinned ? 200 : 0),
+      };
+    })
     .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title))
     .slice(0, 6);
 }

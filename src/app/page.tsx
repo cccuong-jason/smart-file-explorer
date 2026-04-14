@@ -46,14 +46,14 @@ import {
   type StarterScanSuggestion,
 } from '@/lib/onboarding/starter-scan';
 import { buildFolderInsights } from '@/lib/folder-intelligence/workspaces';
-import { buildWorkInboxItems } from '@/lib/work-inbox/items';
+import { buildWorkInboxItems, getWorkspaceOpenNowItemId } from '@/lib/work-inbox/items';
 import {
   dismissWorkInboxItem,
   getWorkInboxActivity,
   recordWorkInboxOpenFile,
   recordWorkInboxVisit,
   resetDismissedWorkInboxItems,
-  togglePinnedWorkspace,
+  togglePinnedInboxItem,
   type WorkInboxActivitySnapshot,
 } from '@/lib/work-inbox/activity';
 import {
@@ -194,7 +194,7 @@ export default function Home() {
   const [folderInsightAiCache, setFolderInsightAiCache] = useState<Record<string, FolderInsightAiCacheEntry>>({});
   const [workInboxActivity, setWorkInboxActivity] = useState<WorkInboxActivitySnapshot>({
     recentFiles: [],
-    pinnedWorkspaceIds: [],
+    pinnedItemIds: [],
     dismissedItemKeys: [],
   });
   const pendingFolderInsightAiRef = useRef(new Set<string>());
@@ -610,11 +610,10 @@ export default function Home() {
     try {
       const nextStatus = await saveCloudIntelligenceConfig(input);
       setCloudStatus(nextStatus);
-      toast(t('privacy_cloud_save_success'), 'success');
+      return nextStatus;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       void logFrontendMessage('error', message, 'page-cloud-save');
-      toast(message, 'error');
       throw error;
     }
   };
@@ -623,15 +622,10 @@ export default function Home() {
     try {
       const nextStatus = await testCloudIntelligenceConnection(input);
       setCloudStatus(nextStatus);
-      if (nextStatus.lastError) {
-        toast(nextStatus.lastError, 'error');
-      } else {
-        toast(t('privacy_cloud_test_success'), 'success');
-      }
+      return nextStatus;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       void logFrontendMessage('error', message, 'page-cloud-test');
-      toast(message, 'error');
       throw error;
     }
   };
@@ -649,11 +643,10 @@ export default function Home() {
         }
         return next;
       });
-      toast(t('privacy_cloud_clear_success'), 'info');
+      return nextStatus;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       void logFrontendMessage('error', message, 'page-cloud-clear');
-      toast(message, 'error');
       throw error;
     }
   };
@@ -956,14 +949,20 @@ export default function Home() {
     toast(t('work_inbox_hidden_restored'), 'success');
   };
 
-  const handleTogglePinnedWorkspace = (workspaceId: string) => {
-    const updated = togglePinnedWorkspace(workspaceId);
+  const handleTogglePinnedInboxItem = (itemId: string) => {
+    const updated = togglePinnedInboxItem(itemId);
     setWorkInboxActivity(updated);
+    const isPinned = updated.pinnedItemIds.includes(itemId);
     toast(
-      updated.pinnedWorkspaceIds.includes(workspaceId)
-        ? t('work_inbox_pin_success')
-        : t('work_inbox_unpin_success'),
+      isPinned ? t('work_inbox_pin_success') : t('work_inbox_unpin_success'),
       'success',
+      isPinned ? {
+        actionLabel: t('undo'),
+        onAction: () => {
+          const reverted = togglePinnedInboxItem(itemId);
+          setWorkInboxActivity(reverted);
+        },
+      } : undefined,
     );
   };
 
@@ -1234,8 +1233,8 @@ export default function Home() {
           setSelectedWorkspaceId(null);
           setSelectedFile(matched);
         }}
-        isPinned={selectedWorkspaceInsight ? workInboxActivity.pinnedWorkspaceIds.includes(selectedWorkspaceInsight.id) : false}
-        onTogglePin={handleTogglePinnedWorkspace}
+        isPinned={selectedWorkspaceInsight ? workInboxActivity.pinnedItemIds.includes(getWorkspaceOpenNowItemId(selectedWorkspaceInsight.id)) : false}
+        onTogglePin={handleTogglePinnedInboxItem}
       />
       <ResizableLayout
       sidebar={Sidebar}
@@ -1324,7 +1323,7 @@ export default function Home() {
               }}
               onOpenWorkspace={(workspaceId) => setSelectedWorkspaceId(workspaceId)}
               onDismissItem={handleDismissWorkInboxItem}
-              onToggleWorkspacePin={handleTogglePinnedWorkspace}
+              onToggleItemPin={handleTogglePinnedInboxItem}
               hiddenItemCount={hiddenWorkInboxItemCount}
               onResetDismissedItems={hiddenWorkInboxItemCount > 0 ? handleResetDismissedWorkInboxItems : undefined}
             />

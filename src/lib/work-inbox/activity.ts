@@ -11,7 +11,7 @@ export interface WorkInboxRecentFile {
 export interface WorkInboxActivitySnapshot {
   lastInboxVisitAt?: number;
   recentFiles: WorkInboxRecentFile[];
-  pinnedWorkspaceIds: string[];
+  pinnedItemIds: string[];
   dismissedItemKeys: string[];
 }
 
@@ -60,24 +60,27 @@ function sanitizeStringList(value: unknown) {
 export function getWorkInboxActivity(): WorkInboxActivitySnapshot {
   const storage = getStorage();
   if (!storage) {
-    return { recentFiles: [], pinnedWorkspaceIds: [], dismissedItemKeys: [] };
+    return { recentFiles: [], pinnedItemIds: [], dismissedItemKeys: [] };
   }
 
   try {
     const raw = storage.getItem(WORK_INBOX_ACTIVITY_KEY);
     if (!raw) {
-      return { recentFiles: [], pinnedWorkspaceIds: [], dismissedItemKeys: [] };
+      return { recentFiles: [], pinnedItemIds: [], dismissedItemKeys: [] };
     }
 
-    const parsed = JSON.parse(raw) as Partial<WorkInboxActivitySnapshot>;
+    const parsed = JSON.parse(raw) as Partial<WorkInboxActivitySnapshot> & { pinnedWorkspaceIds?: string[] };
+    const pinnedItemIds = sanitizeStringList(parsed.pinnedItemIds);
+    const legacyPinnedWorkspaceIds = sanitizeStringList(parsed.pinnedWorkspaceIds).map((workspaceId) => `${workspaceId}:open-now`);
+
     return {
       lastInboxVisitAt: typeof parsed.lastInboxVisitAt === 'number' ? parsed.lastInboxVisitAt : undefined,
       recentFiles: sanitizeRecentFiles(parsed.recentFiles),
-      pinnedWorkspaceIds: sanitizeStringList(parsed.pinnedWorkspaceIds),
+      pinnedItemIds: pinnedItemIds.length > 0 ? pinnedItemIds : legacyPinnedWorkspaceIds,
       dismissedItemKeys: sanitizeStringList(parsed.dismissedItemKeys),
     };
   } catch {
-    return { recentFiles: [], pinnedWorkspaceIds: [], dismissedItemKeys: [] };
+    return { recentFiles: [], pinnedItemIds: [], dismissedItemKeys: [] };
   }
 }
 
@@ -118,15 +121,15 @@ export function recordWorkInboxOpenFile(
   });
 }
 
-export function togglePinnedWorkspace(workspaceId: string) {
+export function togglePinnedInboxItem(itemId: string) {
   const snapshot = getWorkInboxActivity();
-  const pinnedWorkspaceIds = snapshot.pinnedWorkspaceIds.includes(workspaceId)
-    ? snapshot.pinnedWorkspaceIds.filter((entry) => entry !== workspaceId)
-    : [workspaceId, ...snapshot.pinnedWorkspaceIds];
+  const pinnedItemIds = snapshot.pinnedItemIds.includes(itemId)
+    ? snapshot.pinnedItemIds.filter((entry) => entry !== itemId)
+    : [itemId, ...snapshot.pinnedItemIds];
 
   return saveWorkInboxActivity({
     ...snapshot,
-    pinnedWorkspaceIds,
+    pinnedItemIds,
   });
 }
 

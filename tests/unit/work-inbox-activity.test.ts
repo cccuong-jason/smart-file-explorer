@@ -6,7 +6,7 @@ import {
   recordWorkInboxOpenFile,
   recordWorkInboxVisit,
   resetDismissedWorkInboxItems,
-  togglePinnedWorkspace,
+  togglePinnedInboxItem,
 } from '@/lib/work-inbox/activity';
 
 describe('work inbox activity', () => {
@@ -18,7 +18,7 @@ describe('work inbox activity', () => {
   it('returns an empty snapshot when nothing is stored', () => {
     expect(getWorkInboxActivity()).toEqual({
       dismissedItemKeys: [],
-      pinnedWorkspaceIds: [],
+      pinnedItemIds: [],
       recentFiles: [],
     });
   });
@@ -52,18 +52,18 @@ describe('work inbox activity', () => {
     expect(getWorkInboxActivity()).toEqual({
       dismissedItemKeys: [],
       lastInboxVisitAt: 500,
-      pinnedWorkspaceIds: [],
+      pinnedItemIds: [],
       recentFiles: [],
     });
     expect(localStorage.getItem(WORK_INBOX_ACTIVITY_KEY)).toContain('500');
   });
 
-  it('persists pinned workspaces without duplicating the same workspace id', () => {
-    togglePinnedWorkspace('workspace-2');
-    togglePinnedWorkspace('workspace-1');
-    togglePinnedWorkspace('workspace-2');
+  it('persists pinned inbox items without duplicating the same item id', () => {
+    togglePinnedInboxItem('workspace-2:open-now');
+    togglePinnedInboxItem('workspace-1:recent-change');
+    togglePinnedInboxItem('workspace-2:open-now');
 
-    expect(getWorkInboxActivity().pinnedWorkspaceIds).toEqual(['workspace-1']);
+    expect(getWorkInboxActivity().pinnedItemIds).toEqual(['workspace-1:recent-change']);
   });
 
   it('stores dismissed inbox items and can clear them later', () => {

@@ -401,14 +401,17 @@ fn load_cloud_config(app_handle: &AppHandle) -> Result<CloudIntelligenceConfig, 
     let path = cloud_config_path(app_handle)?;
     if !path.exists() {
         return Ok(CloudIntelligenceConfig {
-            model: "qwen/qwen3.6-plus:free".to_string(),
+            model: "qwen/qwen3.6-plus".to_string(),
             last_tested_at: None,
             last_error: None,
         });
     }
 
     let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&content).map_err(|error| error.to_string())
+    let mut config: CloudIntelligenceConfig =
+        serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    config.model = normalize_openrouter_model(&config.model);
+    Ok(config)
 }
 
 fn save_cloud_config_file(app_handle: &AppHandle, config: &CloudIntelligenceConfig) -> Result<(), String> {
@@ -438,9 +441,26 @@ fn get_user_openrouter_api_key() -> Result<Option<String>, String> {
     }
 }
 
+fn normalize_openrouter_api_key(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
+}
+
+fn normalize_openrouter_model(value: &str) -> String {
+    let trimmed = value.trim();
+    match trimmed {
+        "" | "qwen/qwen3.6-plus:free" => "qwen/qwen3.6-plus".to_string(),
+        _ => trimmed.to_string(),
+    }
+}
+
 fn set_user_openrouter_api_key(value: &str) -> Result<(), String> {
     let entry = keyring_entry()?;
-    entry.set_password(value).map_err(|error| error.to_string())
+    entry.set_password(&normalize_openrouter_api_key(value))
+        .map_err(|error| error.to_string())
 }
 
 fn clear_user_openrouter_api_key() -> Result<(), String> {
@@ -454,23 +474,25 @@ fn clear_user_openrouter_api_key() -> Result<(), String> {
 fn openrouter_model(app_handle: Option<&AppHandle>) -> String {
     if let Some(app_handle) = app_handle {
         if let Ok(config) = load_cloud_config(app_handle) {
-            return config.model;
+            return normalize_openrouter_model(&config.model);
         }
     }
 
     load_project_env_files();
-    env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "qwen/qwen3.6-plus:free".to_string())
+    normalize_openrouter_model(
+        &env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "qwen/qwen3.6-plus".to_string()),
+    )
 }
 
 fn openrouter_api_key() -> Result<(String, String), String> {
     if let Some(user_key) = get_user_openrouter_api_key()? {
-        return Ok((user_key, "user".to_string()));
+        return Ok((normalize_openrouter_api_key(&user_key), "user".to_string()));
     }
 
     load_project_env_files();
     env::var("OPENROUTER_API_KEY")
         .or_else(|_| env::var("OPEN_ROUTER_API_KEY"))
-        .map(|value| (value, "project".to_string()))
+        .map(|value| (normalize_openrouter_api_key(&value), "project".to_string()))
         .map_err(|_| "Missing OpenRouter key".to_string())
 }
 
@@ -492,7 +514,7 @@ fn build_cloud_intelligence_status(app_handle: Option<&AppHandle>, last_error: O
         load_cloud_config(app_handle)?
     } else {
         CloudIntelligenceConfig {
-            model: "qwen/qwen3.6-plus:free".to_string(),
+            model: "qwen/qwen3.6-plus".to_string(),
             last_tested_at: None,
             last_error: None,
         }
@@ -616,7 +638,7 @@ async fn request_openrouter_folder_summary(
         .post("https://openrouter.ai/api/v1/chat/completions")
         .bearer_auth(api_key)
         .header("Content-Type", "application/json")
-        .header("X-Title", "Smart File Explorer");
+        .header("X-OpenRouter-Title", "Smart File Explorer");
 
     if let Some(site_url) = openrouter_site_url() {
         request_builder = request_builder.header("HTTP-Referer", site_url);
@@ -789,9 +811,9 @@ fn save_cloud_intelligence_config(
         &app_handle,
         &CloudIntelligenceConfig {
             model: if input.model.trim().is_empty() {
-                "qwen/qwen3.6-plus:free".to_string()
+                "qwen/qwen3.6-plus".to_string()
             } else {
-                input.model.trim().to_string()
+                normalize_openrouter_model(input.model.trim())
             },
             last_tested_at: None,
             last_error: None,
@@ -806,8 +828,16 @@ async fn test_cloud_intelligence_connection(
     input: TestCloudIntelligenceConnectionInput,
 ) -> Result<CloudIntelligenceStatus, String> {
     log::info!("Testing cloud intelligence connection");
-    let api_key = input.api_key.clone().filter(|value| !value.trim().is_empty());
-    let model = input.model.clone().filter(|value| !value.trim().is_empty());
+    let api_key = input
+        .api_key
+        .clone()
+        .map(|value| normalize_openrouter_api_key(&value))
+        .filter(|value| !value.is_empty());
+    let model = input
+        .model
+        .clone()
+        .map(|value| normalize_openrouter_model(&value))
+        .filter(|value| !value.is_empty());
     let request = FolderIntelligenceRequest {
         workspace_id: "connection-test".to_string(),
         title: "Connection Test".to_string(),
