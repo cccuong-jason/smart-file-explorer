@@ -83,7 +83,7 @@ function createContinueNowItem(
   };
 }
 
-function createNeedsReviewItem(insight: FolderInsight, file: any): WorkInboxItem {
+function createNeedsReviewItem(insight: FolderInsight, file: any, evidenceLead: string): WorkInboxItem {
   const id = `${insight.id}:needs-review:${file.path}`;
   return {
     id,
@@ -97,7 +97,7 @@ function createNeedsReviewItem(insight: FolderInsight, file: any): WorkInboxItem
     title: `Review ${file.name}`,
     reason: `${file.name} changed since your last visit to ${insight.title}.`,
     actionLabel: 'Review file',
-    evidence: buildEvidence(file, ['Changed after your last inbox visit']),
+    evidence: buildEvidence(file, [evidenceLead]),
     primaryFile: file,
     priority: 130,
   };
@@ -235,21 +235,33 @@ function createContinueNowItems(insights: FolderInsight[], activity?: WorkInboxA
 }
 
 function createNeedsReviewItems(insights: FolderInsight[], activity?: WorkInboxActivitySnapshot) {
-  const lastInboxVisitAt = activity?.lastInboxVisitAt;
-  if (!lastInboxVisitAt) {
+  const hasInboxVisit = typeof activity?.lastInboxVisitAt === 'number';
+  const workspaceVisits = activity?.workspaceVisits ?? {};
+  if (!hasInboxVisit && Object.keys(workspaceVisits).length === 0) {
     return [];
   }
 
   return insights
     .map((insight) => {
-      const changedImportantFile = insight.importantFiles.find((file) => file.lastModified > lastInboxVisitAt)
-        ?? (insight.topFile.lastModified > lastInboxVisitAt ? insight.topFile : null);
+      const workspaceVisitAt = workspaceVisits[insight.id];
+      const compareTimestamp = typeof workspaceVisitAt === 'number'
+        ? workspaceVisitAt
+        : activity?.lastInboxVisitAt;
+      if (typeof compareTimestamp !== 'number') {
+        return null;
+      }
+
+      const changedImportantFile = insight.importantFiles.find((file) => file.lastModified > compareTimestamp)
+        ?? (insight.topFile.lastModified > compareTimestamp ? insight.topFile : null);
 
       if (!changedImportantFile) {
         return null;
       }
 
-      const item = createNeedsReviewItem(insight, changedImportantFile);
+      const evidenceLead = typeof workspaceVisitAt === 'number'
+        ? 'Changed since you last opened this workspace'
+        : 'Changed after your last inbox visit';
+      const item = createNeedsReviewItem(insight, changedImportantFile, evidenceLead);
       return item;
     })
     .filter((item): item is WorkInboxItem => Boolean(item))

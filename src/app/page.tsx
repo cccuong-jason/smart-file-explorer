@@ -52,6 +52,7 @@ import {
   getWorkInboxActivity,
   recordWorkInboxOpenFile,
   recordWorkInboxVisit,
+  recordWorkInboxWorkspaceVisit,
   resetDismissedWorkInboxItems,
   togglePinnedInboxItem,
   type WorkInboxActivitySnapshot,
@@ -920,6 +921,15 @@ export default function Home() {
     recordWorkInboxVisit();
     hasRecordedInboxVisitRef.current = true;
   }, [searchQuery, workInboxItems.length]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceInsight?.id) {
+      return;
+    }
+
+    const updated = recordWorkInboxWorkspaceVisit(selectedWorkspaceInsight.id);
+    setWorkInboxActivity(updated);
+  }, [selectedWorkspaceInsight?.id]);
 
   useEffect(() => {
     if (!selectedFile?.path || lastRecordedOpenPathRef.current === selectedFile.path) {

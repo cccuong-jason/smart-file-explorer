@@ -229,4 +229,92 @@ describe('buildWorkInboxItems', () => {
       expect.arrayContaining(['Changed after your last inbox visit', 'Likely latest version'])
     );
   });
+
+  it('prefers the last workspace visit over the global inbox visit for needs-review signals', () => {
+    const items = buildWorkInboxItems(
+      [
+        createInsight({
+          topFile: {
+            path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
+            name: 'proposal-final.docx',
+            size: 100,
+            type: 'application/docx',
+            lastModified: 950,
+            isLikelyLatest: true,
+          },
+          importantFiles: [
+            {
+              path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
+              name: 'proposal-final.docx',
+              size: 100,
+              type: 'application/docx',
+              lastModified: 950,
+              isLikelyLatest: true,
+            },
+          ],
+          recentFiles: [],
+          recentCount: 0,
+          ocrCount: 0,
+          versionGroups: [],
+        }),
+      ],
+      {
+        lastInboxVisitAt: 700,
+        workspaceVisits: {
+          'workspace-1': 900,
+        },
+        dismissedItemKeys: [],
+        pinnedItemIds: [],
+        recentFiles: [],
+      }
+    );
+
+    const needsReviewItem = items.find((item) => item.type === 'needs_review');
+    expect(needsReviewItem).toBeDefined();
+    expect(needsReviewItem?.evidence).toEqual(
+      expect.arrayContaining(['Changed since you last opened this workspace'])
+    );
+  });
+
+  it('does not surface needs-review when the workspace was visited after the file changed', () => {
+    const items = buildWorkInboxItems(
+      [
+        createInsight({
+          topFile: {
+            path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
+            name: 'proposal-final.docx',
+            size: 100,
+            type: 'application/docx',
+            lastModified: 950,
+            isLikelyLatest: true,
+          },
+          importantFiles: [
+            {
+              path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
+              name: 'proposal-final.docx',
+              size: 100,
+              type: 'application/docx',
+              lastModified: 950,
+              isLikelyLatest: true,
+            },
+          ],
+          recentFiles: [],
+          recentCount: 0,
+          ocrCount: 0,
+          versionGroups: [],
+        }),
+      ],
+      {
+        lastInboxVisitAt: 700,
+        workspaceVisits: {
+          'workspace-1': 980,
+        },
+        dismissedItemKeys: [],
+        pinnedItemIds: [],
+        recentFiles: [],
+      }
+    );
+
+    expect(items.find((item) => item.type === 'needs_review')).toBeUndefined();
+  });
 });

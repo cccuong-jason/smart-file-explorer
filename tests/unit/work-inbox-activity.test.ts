@@ -5,6 +5,7 @@ import {
   getWorkInboxActivity,
   recordWorkInboxOpenFile,
   recordWorkInboxVisit,
+  recordWorkInboxWorkspaceVisit,
   resetDismissedWorkInboxItems,
   togglePinnedInboxItem,
 } from '@/lib/work-inbox/activity';
@@ -20,6 +21,7 @@ describe('work inbox activity', () => {
       dismissedItemKeys: [],
       pinnedItemIds: [],
       recentFiles: [],
+      workspaceVisits: {},
     });
   });
 
@@ -54,8 +56,20 @@ describe('work inbox activity', () => {
       lastInboxVisitAt: 500,
       pinnedItemIds: [],
       recentFiles: [],
+      workspaceVisits: {},
     });
     expect(localStorage.getItem(WORK_INBOX_ACTIVITY_KEY)).toContain('500');
+  });
+
+  it('stores the last visit timestamp for each workspace and keeps the latest value', () => {
+    recordWorkInboxWorkspaceVisit('workspace-1', 100);
+    recordWorkInboxWorkspaceVisit('workspace-2', 300);
+    recordWorkInboxWorkspaceVisit('workspace-1', 500);
+
+    expect(getWorkInboxActivity().workspaceVisits).toEqual({
+      'workspace-1': 500,
+      'workspace-2': 300,
+    });
   });
 
   it('persists pinned inbox items without duplicating the same item id', () => {
