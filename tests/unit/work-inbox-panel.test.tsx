@@ -164,4 +164,24 @@ describe('WorkInboxPanel', () => {
     expect(onToggleItemPin).toHaveBeenCalledWith('1');
     expect(onDismissItem).toHaveBeenCalledWith('1:state');
   });
+
+  it('uses tokenized card surfaces so inbox recommendations stay consistent in dark mode', () => {
+    localStorage.setItem('i18n_lang', 'en');
+
+    const { container } = render(
+      <I18nProvider>
+        <WorkInboxPanel
+          items={items}
+          onOpenFile={vi.fn()}
+          onOpenWorkspace={vi.fn()}
+          onDismissItem={vi.fn()}
+          onToggleItemPin={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    expect(container.innerHTML).toContain('bg-[var(--ui-surface)]');
+    expect(container.innerHTML).toContain('bg-[var(--ui-surface-muted)]');
+    expect(container.innerHTML).toContain('border-[var(--ui-border)]');
+  });
 });

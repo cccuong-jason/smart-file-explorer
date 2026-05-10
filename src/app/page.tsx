@@ -1,17 +1,34 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { processFile, TauriFileMetadata } from '@/lib/file-system/scanner';
+import {
+  findWatchedFolderForPath,
+  normalizeWatchedEventPath,
+  resolveWatchedFileMetadata,
+  shouldResetPageForWatchedAddition,
+} from '@/lib/file-system/watch-events';
+import {
+  buildNativeWatchSyncSnapshot,
+  inspectNativeWatchedFolders,
+  shouldSyncNativeWatchedFolders,
+  syncNativeWatchedFolders,
+} from '@/lib/file-system/watched-folders-sync';
 import { searchFiles } from '@/lib/search/engine';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { emitTo, listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import {
   deleteFile,
   deleteWorkspaceAiSummary,
   getAllFiles,
+  getFile,
+  getWatchedFolders,
   getWorkspaceAiSummary,
+  removeWatchedFolder,
+  saveWatchedFolder,
+  setWatchedFolderEnabled,
+  setWatchedFolderStatus,
   storeWorkspaceAiSummary,
   toggleFileStar,
 } from '@/lib/file-system/db';
@@ -27,7 +44,7 @@ import { FolderOpen, FileText, FileCode, Image as ImageIcon, ArrowUpDown, Star, 
 import { useToast } from '@/components/ui/toast';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { QuickLookModal } from '@/components/file-viewer/quick-look-modal';
-import { Settings, LayoutGrid, List } from 'lucide-react';
+import { Settings, LayoutGrid, List, FolderTree as FolderTreeIcon } from 'lucide-react';
 import { FirstVisitTour } from '@/components/onboarding/first-visit-tour';
 import { StarterScanModal } from '@/components/onboarding/starter-scan-modal';
 import { WorkInboxPanel } from '@/components/folder-intelligence/work-inbox-panel';
@@ -36,8 +53,22 @@ import { useTranslation } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme-provider';
 import { FileGridItem } from '@/components/file-viewer/file-grid-item';
 import { extractUniqueTags, filterFiles, paginateFiles, sortFiles } from '@/lib/file-browser/utils';
+import { buildTreeView, getTreeAutoExpandedPaths } from '@/lib/file-browser/tree-view';
+import { TreeView } from '@/components/file-viewer/tree-view';
 import { logFrontendMessage } from '@/lib/telemetry/logger';
 import { getIndexingCoordinator } from '@/lib/file-system/indexing-coordinator';
+import {
+  createEmptyScanSessionProgress,
+  isScanSessionActive,
+  type NativeScanSessionEvent,
+} from '@/lib/file-system/scan-session';
+import {
+  createTrayActivityComplete,
+  createTrayActivityIndexing,
+  shouldShowTrayActivityForWatchEvent,
+  TRAY_ACTIVITY_EVENT,
+  type TrayActivityEventPayload,
+} from '@/lib/tray-activity/state';
 import { classifyFile, type FileTypeFilterId } from '@/lib/file-browser/classification';
 import {
   normalizeStarterScanSuggestions,
@@ -131,7 +162,7 @@ export default function Home() {
   const indexingCoordinator = useMemo(() => getIndexingCoordinator(), []);
 
   // --- State ---
-  const [viewMode, setViewMode] = useState<'list'|'grid'>('list');
+  const [viewMode, setViewMode] = useState<'list'|'grid'|'tree'>('list');
   const [files, setFiles] = useState<any[]>([]);
   const [selectedFile, setSelectedFile] = useState<any | null>(null);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
@@ -140,10 +171,12 @@ export default function Home() {
   // Scanning
   const [isScanning, setIsScanning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [scanProgress, setScanProgress] = useState({ count: 0, total: 0, currentFile: '' });
+  const [scanProgress, setScanProgress] = useState(() => createEmptyScanSessionProgress());
 
   // Ref to track pause state immediately in loop without dependency closure issues
   const isPausedRef = useRef(false);
+  const activeForegroundScanIdRef = useRef<string | null>(null);
+  const pendingStarterCompletionRef = useRef(false);
 
   // Drop zone
   const [isDragOver, setIsDragOver] = useState(false);
@@ -193,6 +226,7 @@ export default function Home() {
     model: DEFAULT_CLOUD_INTELLIGENCE_MODEL,
   });
   const [folderInsightAiCache, setFolderInsightAiCache] = useState<Record<string, FolderInsightAiCacheEntry>>({});
+  const [watchedFolders, setWatchedFolders] = useState<any[]>([]);
   const [workInboxActivity, setWorkInboxActivity] = useState<WorkInboxActivitySnapshot>({
     recentFiles: [],
     pinnedItemIds: [],
@@ -202,6 +236,8 @@ export default function Home() {
   const failedFolderInsightAiRef = useRef(new Set<string>());
   const lastRecordedOpenPathRef = useRef<string | null>(null);
   const hasRecordedInboxVisitRef = useRef(false);
+  const lastWatchSyncSignatureRef = useRef<string | null>(null);
+  const trayActivityCandidatesRef = useRef(new Map<string, { watchLabel?: string }>());
 
   // --- Effects ---
   // Scroll to top on page change
@@ -212,7 +248,7 @@ export default function Home() {
   }, [currentPage]);
 
   useEffect(() => {
-    refreshData();
+    void refreshData();
   }, []);
 
   useEffect(() => {
@@ -232,6 +268,20 @@ export default function Home() {
   useEffect(() => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
+
+  const refreshData = useCallback(async () => {
+    pendingFileUpdatesRef.current.clear();
+    if (flushFileUpdatesTimerRef.current) {
+      clearTimeout(flushFileUpdatesTimerRef.current);
+      flushFileUpdatesTimerRef.current = null;
+    }
+    const all = await getAllFiles();
+    setFiles(all);
+  }, []);
+
+  const refreshWatchedFolders = useCallback(async () => {
+    setWatchedFolders(await getWatchedFolders());
+  }, []);
 
   const flushBufferedFileUpdates = useCallback(() => {
     if (flushFileUpdatesTimerRef.current) {
@@ -266,6 +316,59 @@ export default function Home() {
     }
   }, [flushBufferedFileUpdates]);
 
+  const getWatchFolderLabel = useCallback((path?: string) => {
+    if (!path) {
+      return undefined;
+    }
+
+    const segments = path.split(/[\\/]/).filter(Boolean);
+    return segments.at(-1) || path;
+  }, []);
+
+  const isMainWindowVisible = useCallback(async () => {
+    try {
+      return await getCurrentWebviewWindow().isVisible();
+    } catch {
+      return true;
+    }
+  }, []);
+
+  const emitTrayActivity = useCallback(async (activity: TrayActivityEventPayload['activity']) => {
+    try {
+      await emitTo('tray-activity', TRAY_ACTIVITY_EVENT, { activity });
+
+      if (!activity) {
+        const trayWindow = await WebviewWindow.getByLabel('tray-activity');
+        await trayWindow?.hide().catch(() => undefined);
+      }
+    } catch (error) {
+      console.warn('Failed to update tray activity window', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setup = async () => {
+      try {
+        const appWindow = getCurrentWebviewWindow();
+        unlisten = await appWindow.onFocusChanged(({ payload: focused }) => {
+          if (focused) {
+            void emitTrayActivity(null);
+          }
+        });
+      } catch (error) {
+        console.warn('Failed to subscribe to main-window focus changes', error);
+      }
+    };
+
+    void setup();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [emitTrayActivity]);
+
   useEffect(() => {
     return () => {
       if (flushFileUpdatesTimerRef.current) {
@@ -281,33 +384,157 @@ export default function Home() {
         if (!searchQuery.trim()) {
           enqueueFileUpdate(event.file);
         }
+
+        const trayCandidate = trayActivityCandidatesRef.current.get(event.file.path);
+        if (trayCandidate && event.file.processingStatus === 'completed') {
+          trayActivityCandidatesRef.current.delete(event.file.path);
+          void (async () => {
+            if (await isMainWindowVisible()) {
+              return;
+            }
+
+            await emitTrayActivity(
+              createTrayActivityComplete({
+                path: event.file.path,
+                completedAt: Date.now(),
+                hideDelayMs: 2200,
+              })
+            );
+          })();
+        }
+
+        if (trayCandidate && event.file.processingStatus === 'failed') {
+          trayActivityCandidatesRef.current.delete(event.file.path);
+          void emitTrayActivity(null);
+        }
       }
 
       if (event.type === 'scan-progress') {
-        setIsScanning(event.completed < event.total);
-        setIsPaused(event.isPaused);
-        setScanProgress({
-          count: event.completed,
-          total: event.total,
-          currentFile: event.currentFile ?? '',
-        });
+        const { progress } = event;
+        if (progress.scope === 'background') {
+          const trayCandidate = progress.currentPath
+            ? trayActivityCandidatesRef.current.get(progress.currentPath)
+            : undefined;
+
+          if (trayCandidate && progress.currentPath) {
+            void (async () => {
+              if (await isMainWindowVisible()) {
+                return;
+              }
+
+              await emitTrayActivity(
+                createTrayActivityIndexing({
+                  path: progress.currentPath,
+                  processedCount: progress.processedCount,
+                  totalKnownCount: progress.totalKnownCount,
+                  watchLabel: trayCandidate.watchLabel,
+                  detectedAt: Date.now(),
+                })
+              );
+            })();
+          }
+          return;
+        }
+
+        if (progress.scope !== 'foreground') {
+          return;
+        }
+
+        if (activeForegroundScanIdRef.current && progress.sessionId !== activeForegroundScanIdRef.current) {
+          return;
+        }
+
+        setIsScanning(isScanSessionActive(progress));
+        setIsPaused(progress.isPaused);
+        setScanProgress(progress);
       }
 
       if (event.type === 'scan-complete') {
+        const { progress } = event;
+        if (progress.scope !== 'foreground') {
+          return;
+        }
+
+        if (activeForegroundScanIdRef.current && progress.sessionId !== activeForegroundScanIdRef.current) {
+          return;
+        }
+
+        activeForegroundScanIdRef.current = null;
         setIsScanning(false);
         setIsPaused(false);
-        setScanProgress((prev) => ({
-          ...prev,
-          count: event.completed,
-          total: event.total,
-          currentFile: '',
-        }));
+        setIsStarterScanning(false);
+        setScanProgress(progress);
+        void refreshWatchedFolders();
+        if (pendingStarterCompletionRef.current) {
+          localStorage.setItem(STARTER_SCAN_COMPLETED_KEY, 'true');
+          pendingStarterCompletionRef.current = false;
+        }
         toast(t('scan_completed'), 'success');
       }
     });
 
     return unsubscribe;
-  }, [enqueueFileUpdate, indexingCoordinator, searchQuery, t, toast]);
+  }, [emitTrayActivity, enqueueFileUpdate, indexingCoordinator, isMainWindowVisible, refreshWatchedFolders, searchQuery, t, toast]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setupListener = async () => {
+      unlisten = await listen<NativeScanSessionEvent>('scan-session-event', async (event) => {
+        const payload = event.payload;
+        if (payload.scope !== 'foreground') {
+          return;
+        }
+
+        if (payload.eventType === 'started') {
+          activeForegroundScanIdRef.current = payload.sessionId;
+          indexingCoordinator.startSession(payload.sessionId, {
+            scope: 'foreground',
+            watchPath: payload.watchPath,
+          });
+          setIsScanning(true);
+          setIsPaused(false);
+          setScanProgress({
+            ...createEmptyScanSessionProgress(payload.sessionId, 'foreground'),
+            currentPath: payload.currentPath ?? '',
+            watchPath: payload.watchPath,
+          });
+          return;
+        }
+
+        if (payload.eventType === 'batch') {
+          await indexingCoordinator.appendDiscoveredFiles(payload.sessionId, payload.batch ?? [], {
+            scope: 'foreground',
+            watchPath: payload.watchPath,
+          });
+          return;
+        }
+
+        if (payload.eventType === 'completed') {
+          indexingCoordinator.completeDiscovery(payload.sessionId);
+          await refreshWatchedFolders();
+          return;
+        }
+
+        if (payload.eventType === 'error' || payload.eventType === 'cancelled') {
+          activeForegroundScanIdRef.current = null;
+          indexingCoordinator.failSession(payload.sessionId, payload.currentPath ?? '', payload.error);
+          setIsScanning(false);
+          setIsPaused(false);
+          setIsStarterScanning(false);
+          pendingStarterCompletionRef.current = false;
+          await refreshWatchedFolders();
+          toast(t('scan_failed'), 'error');
+        }
+      });
+    };
+
+    void setupListener();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [indexingCoordinator, refreshWatchedFolders, t, toast]);
 
   // Background File Watcher Listener
   useEffect(() => {
@@ -316,26 +543,59 @@ export default function Home() {
     const setupListener = async () => {
       unlisten = await listen<{ kind: string; path: string }>('sys-file-event', async (event) => {
         const { kind, path } = event.payload;
+        const normalizedPath = normalizeWatchedEventPath(path);
+        console.info('[watch] received native file event', {
+          kind,
+          path,
+          normalizedPath,
+        });
         
         if (kind === 'remove') {
-          await deleteFile(path);
-          setFiles(prev => prev.filter(f => f.path !== path));
+          trayActivityCandidatesRef.current.delete(normalizedPath);
+          await deleteFile(normalizedPath);
+          setFiles(prev => prev.filter(f => f.path !== normalizedPath));
           // if it was the selected file, deselect it
-          setSelectedFile((prev: any) => prev?.path === path ? null : prev);
+          setSelectedFile((prev: any) => prev?.path === normalizedPath ? null : prev);
         } else {
           // create, modify, rename
           try {
-            const meta = await invoke<TauriFileMetadata>('get_file_metadata', { path });
-            await processFile(meta, {
-              onFileUpdated: (updatedFile) => {
-                setSelectedFile((prev: any) => prev?.path === updatedFile.path ? { ...prev, ...updatedFile } : prev);
-                if (!searchQueryRef.current.trim()) {
-                  enqueueFileUpdate(updatedFile);
-                }
-              },
+            const existingFile = await getFile(normalizedPath);
+            const meta = await resolveWatchedFileMetadata(normalizedPath);
+            const watchedFolder = findWatchedFolderForPath(normalizedPath, watchedFolders);
+            const isNewWatchedAddition = shouldResetPageForWatchedAddition(existingFile);
+            const shouldShowTrayActivity = shouldShowTrayActivityForWatchEvent({
+              isNewWatchedAddition,
+              isMainWindowVisible: await isMainWindowVisible(),
             });
+            console.info('[watch] resolved file metadata for indexing', {
+              path: normalizedPath,
+              watchedFolder: watchedFolder?.path,
+              size: meta.size,
+              lastModified: meta.lastModified,
+            });
+            if (shouldShowTrayActivity) {
+              trayActivityCandidatesRef.current.set(normalizedPath, {
+                watchLabel: getWatchFolderLabel(watchedFolder?.path),
+              });
+            }
+            await indexingCoordinator.enqueue([meta], {
+              scope: 'background',
+              watchPath: watchedFolder?.path,
+            });
+            console.info('[watch] enqueued file for background indexing', {
+              path: normalizedPath,
+              watchedFolder: watchedFolder?.path,
+            });
+            if (isNewWatchedAddition) {
+              setCurrentPage(1);
+            }
           } catch (e) {
-            console.error("Failed to process background file change", e);
+            trayActivityCandidatesRef.current.delete(normalizedPath);
+            console.error('[watch] failed to process background file change', {
+              path: normalizedPath,
+              kind,
+              error: e,
+            });
           }
         }
       });
@@ -346,7 +606,7 @@ export default function Home() {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [enqueueFileUpdate]);
+  }, [getWatchFolderLabel, indexingCoordinator, isMainWindowVisible, watchedFolders]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -372,15 +632,64 @@ export default function Home() {
   }, []);
 
   // --- Logic ---
-  const refreshData = useCallback(async () => {
-    pendingFileUpdatesRef.current.clear();
-    if (flushFileUpdatesTimerRef.current) {
-      clearTimeout(flushFileUpdatesTimerRef.current);
-      flushFileUpdatesTimerRef.current = null;
+  useEffect(() => {
+    void refreshWatchedFolders();
+  }, [refreshWatchedFolders]);
+
+  useEffect(() => {
+    if (watchedFolders.length === 0) {
+      lastWatchSyncSignatureRef.current = null;
+      return;
     }
-    const all = await getAllFiles();
-    setFiles(all);
-  }, []);
+
+    const syncWatchers = async () => {
+      const desiredSnapshot = buildNativeWatchSyncSnapshot(watchedFolders);
+      const desiredSignature = JSON.stringify(desiredSnapshot);
+
+      try {
+        const snapshot = await inspectNativeWatchedFolders();
+
+        if (snapshot && !shouldSyncNativeWatchedFolders(watchedFolders, snapshot)) {
+          lastWatchSyncSignatureRef.current = desiredSignature;
+          if (snapshot.activeRoots.length === 0 && watchedFolders.some((folder) => folder.enabled)) {
+            toast('Watched folders are saved, but no native watch roots are active yet.', 'warning');
+          }
+          return;
+        }
+
+        if (!snapshot && lastWatchSyncSignatureRef.current === desiredSignature) {
+          return;
+        }
+
+        await syncNativeWatchedFolders(watchedFolders);
+        lastWatchSyncSignatureRef.current = desiredSignature;
+        const syncedSnapshot = await inspectNativeWatchedFolders();
+        if (!syncedSnapshot) {
+          void logFrontendMessage(
+            'warn',
+            'native watch-state inspection is unavailable in the running desktop binary',
+            'watch-sync'
+          );
+          return;
+        }
+        void logFrontendMessage(
+          'info',
+          `synced watched folders to native registry: local=${watchedFolders.length} native=${syncedSnapshot.watchedFolders.length} activeRoots=${syncedSnapshot.activeRoots.length}`,
+          'watch-sync'
+        );
+        if (syncedSnapshot.activeRoots.length === 0 && watchedFolders.some((folder) => folder.enabled)) {
+          toast('Watched folders are saved, but no native watch roots are active yet.', 'warning');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('Failed to sync watched folders to native registry', error);
+        void logFrontendMessage('error', message, 'watch-sync');
+        toast('Failed to sync watched folders to the native watcher.', 'error');
+      }
+    };
+
+    void syncWatchers();
+  }, [toast, watchedFolders]);
 
   const loadStarterSuggestions = useCallback(async () => {
     try {
@@ -426,37 +735,73 @@ export default function Home() {
     const markStarterComplete = options?.markStarterComplete ?? true;
 
     try {
+      const scanStartedAt = Date.now();
+      await Promise.all(
+        uniqueDirectories.map((path) =>
+          saveWatchedFolder({
+            path,
+            enabled: true,
+            status: 'indexing',
+            lastScanStartedAt: scanStartedAt,
+          })
+        )
+      );
+      await refreshWatchedFolders();
       setIsScanning(true);
       setIsPaused(false);
       setIsStarterScanning(markStarterComplete);
       setIsStarterScanOpen(false);
-      setScanProgress({ count: 0, total: 0, currentFile: t('scan_discovering') });
+      pendingStarterCompletionRef.current = markStarterComplete;
+      setScanProgress({
+        ...createEmptyScanSessionProgress('', 'foreground'),
+        currentPath: t('scan_discovering'),
+      });
 
-      const metadataBatches = await Promise.all(
-        uniqueDirectories.map((dirPath) => invoke<TauriFileMetadata[]>('scan_directory', { dirPath }))
-      );
-      const uniqueFiles = Array.from(
-        metadataBatches
-          .flat()
-          .reduce((acc, file) => acc.set(file.path, file), new Map<string, TauriFileMetadata>())
-          .values()
-      );
-
-      setScanProgress((prev) => ({ ...prev, total: uniqueFiles.length, currentFile: t('scan_starting') }));
-      await indexingCoordinator.start(uniqueFiles);
-
-      if (markStarterComplete) {
-        localStorage.setItem(STARTER_SCAN_COMPLETED_KEY, 'true');
-      }
+      const sessionId = await invoke<string>('start_scan_session', { dirPaths: uniqueDirectories });
+      activeForegroundScanIdRef.current = sessionId;
+      setScanProgress((prev) => ({
+        ...prev,
+        sessionId,
+      }));
     } catch (error: any) {
       console.error('Tauri scan error:', error);
-      toast(t('scan_failed'), 'error');
-    } finally {
+      await Promise.all(
+        uniqueDirectories.map((path) =>
+          setWatchedFolderStatus(path, {
+            status: 'error',
+            lastError: error instanceof Error ? error.message : String(error),
+          })
+        )
+      );
+      await refreshWatchedFolders();
+      pendingStarterCompletionRef.current = false;
+      activeForegroundScanIdRef.current = null;
       setIsScanning(false);
       setIsPaused(false);
       setIsStarterScanning(false);
+      toast(t('scan_failed'), 'error');
     }
-  }, [indexingCoordinator, t, toast]);
+  }, [refreshWatchedFolders, t, toast]);
+
+  const handleToggleWatchedFolder = useCallback(async (path: string, enabled: boolean) => {
+    await setWatchedFolderEnabled(path, enabled);
+    await invoke('set_watched_folder_enabled', { path, enabled }).catch((error) => {
+      console.error('Failed to update native watched folder', error);
+    });
+    await setWatchedFolderStatus(path, {
+      status: enabled ? 'watching' : 'paused',
+      lastError: undefined,
+    });
+    await refreshWatchedFolders();
+  }, [refreshWatchedFolders]);
+
+  const handleRemoveWatchedFolder = useCallback(async (path: string) => {
+    await removeWatchedFolder(path);
+    await invoke('remove_watched_folder_native', { path }).catch((error) => {
+      console.error('Failed to remove native watched folder', error);
+    });
+    await refreshWatchedFolders();
+  }, [refreshWatchedFolders]);
 
   // Scan a directory by path directly (used by drag-drop)
   const handleScanDirectory = async (dirPath: string) => {
@@ -530,10 +875,18 @@ export default function Home() {
   };
 
   const handleTogglePause = () => {
-    if (isPausedRef.current) {
-      indexingCoordinator.resume();
+    const sessionId = activeForegroundScanIdRef.current;
+    const nextPaused = !isPausedRef.current;
+    if (nextPaused) {
+      indexingCoordinator.pause(sessionId ?? undefined);
     } else {
-      indexingCoordinator.pause();
+      indexingCoordinator.resume(sessionId ?? undefined);
+    }
+
+    if (sessionId) {
+      void invoke('set_scan_session_paused', { sessionId, paused: nextPaused }).catch((error) => {
+        console.error('Failed to update native scan session pause state', error);
+      });
     }
   };
 
@@ -981,14 +1334,38 @@ export default function Home() {
     return sortFiles(filterFiles(files, activeFilters), sortBy, sortOrder);
   }, [files, activeFilters, sortBy, sortOrder]);
 
+  const treeViewNodes = useMemo(() => {
+    return buildTreeView(filteredAndSortedFiles, watchedFolders, {
+      sortBy,
+      sortOrder,
+    });
+  }, [filteredAndSortedFiles, watchedFolders, sortBy, sortOrder]);
+  const treeAutoExpandedPaths = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return [];
+    }
+
+    return getTreeAutoExpandedPaths(filteredAndSortedFiles, watchedFolders);
+  }, [filteredAndSortedFiles, searchQuery, watchedFolders]);
+
+  const isTreeMode = viewMode === 'tree';
+
   // Pagination
-  useEffect(() => setCurrentPage(1), [filteredAndSortedFiles]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeFilters, searchQuery, sortBy, sortOrder]);
+
+  useEffect(() => {
+    const nextTotalPages = Math.max(1, Math.ceil(filteredAndSortedFiles.length / ITEMS_PER_PAGE));
+    setCurrentPage((prev) => Math.min(prev, nextTotalPages));
+  }, [filteredAndSortedFiles.length]);
 
   const paginatedFiles = useMemo(() => {
     return paginateFiles(filteredAndSortedFiles, currentPage, ITEMS_PER_PAGE);
   }, [filteredAndSortedFiles, currentPage]);
 
   const totalPages = Math.ceil(filteredAndSortedFiles.length / ITEMS_PER_PAGE);
+  const visibleFileCount = isTreeMode ? filteredAndSortedFiles.length : paginatedFiles.length;
 
   // --- Handlers for Filters ---
   const toggleTypeFilter = (id: string) => {
@@ -1104,9 +1481,11 @@ export default function Home() {
         {isScanning && (
           <ProgressBar
             isScanning={isScanning}
-            processedCount={scanProgress.count}
-            totalCount={scanProgress.total}
-            currentFile={scanProgress.currentFile}
+            phase={scanProgress.phase}
+            discoveredCount={scanProgress.discoveredCount}
+            processedCount={scanProgress.processedCount}
+            totalKnownCount={scanProgress.totalKnownCount}
+            currentPath={scanProgress.currentPath}
             isPaused={isPaused}
             onTogglePause={handleTogglePause}
           />
@@ -1229,6 +1608,9 @@ export default function Home() {
         cloudIntelligenceEnabled={cloudIntelligenceEnabled}
         onCloudIntelligenceEnabledChange={handleCloudIntelligenceEnabledChange}
         cloudStatus={cloudStatus}
+        watchedFolders={watchedFolders}
+        onToggleWatchedFolder={handleToggleWatchedFolder}
+        onRemoveWatchedFolder={handleRemoveWatchedFolder}
         onSaveCloudConfig={handleSaveCloudConfig}
         onTestCloudConnection={handleTestCloudConnection}
         onClearCloudConfig={handleClearCloudConfig}
@@ -1281,12 +1663,19 @@ export default function Home() {
 
             <div className="mt-4 flex items-center justify-between">
               <div className="text-xs text-gray-400 dark:text-gray-500">
-                {t('showing_files', { count: paginatedFiles.length, total: filteredAndSortedFiles.length })}
+                {t('showing_files', { count: visibleFileCount, total: filteredAndSortedFiles.length })}
                 {searchQuery && <span className="ml-1">{t('for_query', { query: searchQuery })}</span>}
               </div>
 
               <div className="flex items-center gap-3">
                 <div className="flex items-center bg-gray-50 dark:bg-gray-800 rounded-lg p-0.5 border border-gray-100 dark:border-gray-700">
+                  <button
+                    onClick={() => setViewMode('tree')}
+                    className={`p-1.5 rounded-md transition-colors ${viewMode === 'tree' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                    title={t('tree_view')}
+                  >
+                    <FolderTreeIcon className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={() => setViewMode('grid')}
                     className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
@@ -1341,7 +1730,14 @@ export default function Home() {
 
           {/* File List */}
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto bg-white dark:bg-gray-900 scroll-smooth relative">
-            {paginatedFiles.length > 0 ? (
+            {isTreeMode ? (
+              <TreeView
+                nodes={treeViewNodes}
+                selectedPath={selectedFile?.path ?? null}
+                autoExpandPaths={treeAutoExpandedPaths}
+                onSelectFile={(file) => setSelectedFile(file)}
+              />
+            ) : paginatedFiles.length > 0 ? (
               <div
                 key={currentPage}
                 className={viewMode === 'grid' 
@@ -1379,13 +1775,15 @@ export default function Home() {
           </div>
 
           {/* Footer Pagination */}
-          <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-            />
-          </div>
+          {!isTreeMode ? (
+            <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          ) : null}
         </div>
       }
       preview={<FilePreviewPanel file={selectedFile} onTagsChange={handleTagsChange} onSelectFile={setSelectedFile} />}

@@ -7,10 +7,15 @@ import {
   getAllFiles,
   getAllChunks,
   getOcrCandidateCount,
+  getWatchedFolders,
   getWorkspaceAiSummary,
   getFileChunks,
   getFile,
+  removeWatchedFolder,
   removeFileTag,
+  saveWatchedFolder,
+  setWatchedFolderEnabled,
+  setWatchedFolderStatus,
   storeWorkspaceAiSummary,
   storeFile,
   storeFileChunks,
@@ -174,5 +179,60 @@ describe('file database operations', () => {
     await clearDatabase();
 
     await expect(getWorkspaceAiSummary('workspace-1')).resolves.toBeUndefined();
+  });
+
+  it('stores, updates, and removes watched folders', async () => {
+    await saveWatchedFolder({
+      path: 'C:/Users/jason/Documents/Acme',
+      enabled: true,
+      status: 'watching',
+      lastScanStartedAt: 100,
+      lastScanCompletedAt: 200,
+    });
+
+    await saveWatchedFolder({
+      path: 'C:/Users/jason/Documents/Acme/Subfolder',
+      enabled: false,
+      status: 'idle',
+    });
+
+    await expect(getWatchedFolders()).resolves.toEqual([
+      expect.objectContaining({
+        path: 'C:/Users/jason/Documents/Acme',
+        enabled: true,
+        status: 'watching',
+        lastScanStartedAt: 100,
+        lastScanCompletedAt: 200,
+      }),
+      expect.objectContaining({
+        path: 'C:/Users/jason/Documents/Acme/Subfolder',
+        enabled: false,
+        status: 'idle',
+      }),
+    ]);
+
+    await setWatchedFolderEnabled('C:/Users/jason/Documents/Acme/Subfolder', true);
+    await setWatchedFolderStatus('C:/Users/jason/Documents/Acme/Subfolder', {
+      status: 'indexing',
+      lastScanStartedAt: 300,
+    });
+
+    await expect(getWatchedFolders()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'C:/Users/jason/Documents/Acme/Subfolder',
+          enabled: true,
+          status: 'indexing',
+          lastScanStartedAt: 300,
+        }),
+      ])
+    );
+
+    await removeWatchedFolder('C:/Users/jason/Documents/Acme');
+    await expect(getWatchedFolders()).resolves.toEqual([
+      expect.objectContaining({
+        path: 'C:/Users/jason/Documents/Acme/Subfolder',
+      }),
+    ]);
   });
 });

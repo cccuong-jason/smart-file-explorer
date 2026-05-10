@@ -64,7 +64,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 {toasts.map((t) => (
                     <div
                         key={t.id}
-                        className="pointer-events-auto flex items-center gap-3 min-w-[300px] bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-lg rounded-lg p-4 animate-in slide-in-from-right-full fade-in duration-300"
+                        className="pointer-events-auto flex min-w-[300px] items-center gap-3 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 shadow-lg animate-in slide-in-from-right-full fade-in duration-300"
                     >
                         {getIcon(t.type)}
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-100 flex-1">{t.message}</p>

@@ -14,9 +14,9 @@ export function CopyPathInstructionModal({ isOpen, onClose, path }: CopyPathInst
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 dark:border-gray-800">
+            <div className="w-full max-w-md overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-2xl animate-in zoom-in-95 duration-200">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/70">
+                <div className="flex items-center justify-between border-b border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-4">
                     <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                         <Terminal className="w-4 h-4 text-indigo-600" />
                         {t('copy_path_modal_title')}
@@ -34,15 +34,15 @@ export function CopyPathInstructionModal({ isOpen, onClose, path }: CopyPathInst
 
                     <div className="space-y-2">
                         <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('copy_path_modal_label')}</h4>
-                        <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center gap-3">
+                        <div className="flex items-center gap-3 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
                             <code className="text-xs font-mono text-indigo-700 break-all flex-1">{path}</code>
                             <Copy className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
                         </div>
                     </div>
 
-                    <div className="bg-indigo-50 dark:bg-indigo-950/40 p-4 rounded-lg">
-                        <h4 className="text-xs font-bold text-indigo-800 dark:text-indigo-200 mb-2">{t('copy_path_modal_examples')}</h4>
-                        <div className="space-y-2 font-mono text-xs text-indigo-700 dark:text-indigo-200">
+                    <div className="rounded-lg bg-[var(--ui-primary-soft)] p-4">
+                        <h4 className="mb-2 text-xs font-bold text-[var(--ui-primary)]">{t('copy_path_modal_examples')}</h4>
+                        <div className="space-y-2 font-mono text-xs text-[var(--ui-primary-strong)]">
                             <div className="opacity-80">cd "{path}"</div>
                             <div className="opacity-80">code "{path}"</div>
                             <div className="opacity-80">open "{path}"</div>
@@ -51,10 +51,10 @@ export function CopyPathInstructionModal({ isOpen, onClose, path }: CopyPathInst
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 bg-gray-50 dark:bg-gray-800/70 border-t border-gray-100 dark:border-gray-800 flex justify-end">
+                <div className="flex justify-end border-t border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-4">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                        className="rounded-lg bg-[var(--ui-primary-strong)] px-4 py-2 text-sm font-medium text-white transition-colors hover:brightness-95"
                     >
                         {t('copy_path_modal_acknowledge')}
                     </button>

@@ -5,6 +5,7 @@ import { Keyboard, Check, X, AlertCircle, Database, Download, Trash2, ShieldChec
 import { unregister, register } from '@tauri-apps/plugin-global-shortcut';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { exportIndexToJSON, clearDatabase, getAllFiles, getOcrCandidateCount } from '@/lib/file-system/db';
+import type { WatchedFolderRecord } from '@/lib/file-system/db';
 import { useTranslation } from '@/lib/i18n';
 import clsx from 'clsx';
 import { useToast } from '@/components/ui/toast';
@@ -26,6 +27,9 @@ interface Props {
   cloudIntelligenceEnabled: boolean;
   onCloudIntelligenceEnabledChange: (enabled: boolean) => void;
   cloudStatus: CloudIntelligenceStatus;
+  watchedFolders: WatchedFolderRecord[];
+  onToggleWatchedFolder: (path: string, enabled: boolean) => void | Promise<void>;
+  onRemoveWatchedFolder: (path: string) => void | Promise<void>;
   onSaveCloudConfig: (input: SaveCloudIntelligenceConfigInput) => Promise<CloudIntelligenceStatus>;
   onTestCloudConnection: (input: TestCloudIntelligenceConnectionInput) => Promise<CloudIntelligenceStatus>;
   onClearCloudConfig: () => Promise<CloudIntelligenceStatus>;
@@ -38,6 +42,9 @@ export function SettingsModal({
   cloudIntelligenceEnabled,
   onCloudIntelligenceEnabledChange,
   cloudStatus,
+  watchedFolders,
+  onToggleWatchedFolder,
+  onRemoveWatchedFolder,
   onSaveCloudConfig,
   onTestCloudConnection,
   onClearCloudConfig,
@@ -446,6 +453,70 @@ export function SettingsModal({
                     </div>
                   </div>
 
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-[var(--ui-border)] shadow-sm">
+                <div className="flex items-center justify-between border-b border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-4">
+                  <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200 font-medium text-sm">
+                    <Shield className="h-4 w-4 shrink-0 text-[var(--ui-primary)]" />
+                    {t('watched_folders_title')}
+                  </div>
+                  <div className="rounded px-2 py-1 text-xs font-bold text-[var(--ui-primary)] shadow-sm border border-[var(--ui-border)] bg-[var(--ui-surface)]">
+                    {watchedFolders.length.toLocaleString()} {t('privacy_items')}
+                  </div>
+                </div>
+
+                <div className="space-y-4 bg-[var(--ui-surface)] p-4">
+                  <p className="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                    {t('watched_folders_description')}
+                  </p>
+
+                  {watchedFolders.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-[var(--ui-border)] px-3 py-4 text-xs text-gray-500 dark:text-gray-400">
+                      {t('watched_folders_empty')}
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {watchedFolders.map((folder) => (
+                        <div
+                          key={folder.path}
+                          className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-3 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                {folder.path}
+                              </div>
+                              <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                                {folder.enabled ? t('watched_folder_state_on') : t('watched_folder_state_off')}
+                                {' · '}
+                                {t(`watched_folder_status_${folder.status}`)}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void onToggleWatchedFolder(folder.path, !folder.enabled)}
+                                className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-1.5 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-[var(--ui-surface-muted)] dark:text-gray-200"
+                                aria-label={folder.enabled ? t('watched_folder_disable_action') : t('watched_folder_enable_action')}
+                              >
+                                {folder.enabled ? t('watched_folder_disable_action') : t('watched_folder_enable_action')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onRemoveWatchedFolder(folder.path)}
+                                className="rounded-lg border border-[color:var(--ui-danger)]/30 bg-[var(--ui-surface)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--ui-danger)] transition-colors hover:bg-[var(--ui-danger-soft)]"
+                                aria-label={t('watched_folder_remove_action')}
+                              >
+                                {t('watched_folder_remove_short')}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

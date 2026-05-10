@@ -48,6 +48,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         spotlight: path.resolve(__dirname, 'spotlight.html'),
+        trayActivity: path.resolve(__dirname, 'tray-activity.html'),
       },
     },
   },

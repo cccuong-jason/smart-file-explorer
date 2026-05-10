@@ -47,6 +47,7 @@ test('translation dictionaries include keys required by the main unfinished UI s
     'toggle_language',
     'language_vi',
     'language_en',
+    'tree_view',
     'sort_ascending',
     'sort_descending',
     'preview_empty_title',
@@ -161,6 +162,7 @@ test('main page includes inline toolbar controls for theme and language instead 
 
   assert.match(page, /toggle_theme/, 'Main toolbar should expose a theme toggle control');
   assert.match(page, /toggle_language/, 'Main toolbar should expose a language toggle control');
+  assert.match(page, /tree_view/, 'Main toolbar should expose a tree view toggle control');
   assert.equal(settings.includes("t('language')"), false, 'Settings modal should no longer render the language selector');
   assert.equal(settings.includes("t('theme')"), false, 'Settings modal should no longer render the theme selector');
 });
@@ -171,4 +173,14 @@ test('global styles include custom scrollbar styling for dark mode surfaces', ()
   assert.match(globals, /::-webkit-scrollbar/, 'Globals should style webkit scrollbars');
   assert.match(globals, /scrollbar-color:/, 'Globals should style Firefox scrollbars');
   assert.match(globals, /dark/, 'Scrollbar styling should account for dark surfaces');
+});
+
+test('global styles define a class-based dark variant so the app theme toggle controls dark surfaces', () => {
+  const globals = read('src/app/globals.css');
+
+  assert.match(
+    globals,
+    /@custom-variant\s+dark/,
+    'Globals should override Tailwind dark styles to follow the app dark class'
+  );
 });

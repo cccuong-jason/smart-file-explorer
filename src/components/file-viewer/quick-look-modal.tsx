@@ -97,11 +97,11 @@ export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
             onClick={onClose}
         >
             <div 
-                className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-5xl h-[85vh] shadow-2xl overflow-hidden flex flex-col border border-white/20 dark:border-gray-800 scale-in duration-200"
+                className="w-full max-w-5xl h-[85vh] overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-2xl scale-in duration-200 flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800">
+                <div className="flex items-center justify-between border-b border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-4">
                     <div className="flex items-center gap-4 min-w-0">
                         <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${config.color}`}>
                             <HeaderIcon className="h-5 w-5" />
@@ -114,14 +114,14 @@ export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
                     <div className="flex items-center gap-3 shrink-0 ml-4">
                         <button
                             onClick={handleOpenNatively}
-                            className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors font-medium text-sm shadow-sm"
+                            className="flex items-center justify-center gap-2 rounded-lg bg-[var(--ui-success)] px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:brightness-95"
                         >
                             <ExternalLink className="h-4 w-4" />
                             {t('open_natively')}
                         </button>
                         <button 
                             onClick={onClose}
-                            className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-[var(--ui-surface)] hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
                         >
                             <X className="h-5 w-5" />
                         </button>
@@ -129,17 +129,17 @@ export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
                 </div>
 
                 {/* Content Area */}
-                <div className="flex-1 min-h-0 overflow-auto bg-gray-100/50 dark:bg-gray-950 p-6 flex flex-col">
+                <div className="flex flex-1 min-h-0 flex-col overflow-auto bg-[var(--ui-surface-muted)] p-6">
                     {previewMode === 'image' ? (
-                        <div className="flex-1 bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col min-h-0">
-                            <div className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800 p-2 px-4 flex justify-between items-center shrink-0">
+                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-sm">
+                            <div className="flex shrink-0 items-center justify-between border-b border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-2 px-4">
                                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{t('preview')}</span>
                                 <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
                                     <span className="flex items-center gap-1.5"><HardDrive className="w-3 h-3" /> {(file.size / 1024).toFixed(1)} KB</span>
                                     <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3" /> {new Date(file.lastModified).toLocaleDateString(locale)}</span>
                                 </div>
                             </div>
-                            <div className="flex-1 min-h-0 overflow-auto p-6 flex items-center justify-center bg-gray-100/70 dark:bg-gray-950">
+                            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[var(--ui-surface-muted)] p-6">
                                 <img
                                     src={previewUrl || previewAssetUrl}
                                     alt={file.name}
@@ -148,8 +148,8 @@ export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
                             </div>
                         </div>
                     ) : previewMode === 'text' ? (
-                        <div className="flex-1 bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col">
-                            <div className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800 p-2 px-4 flex justify-between items-center shrink-0">
+                        <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-sm">
+                            <div className="flex shrink-0 items-center justify-between border-b border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-2 px-4">
                                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{t('document_content')}</span>
                                 <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
                                     <span className="flex items-center gap-1.5"><HardDrive className="w-3 h-3" /> {(file.size / 1024).toFixed(1)} KB</span>
@@ -174,8 +174,8 @@ export function QuickLookModal({ isOpen, onClose, file }: QuickLookModalProps) {
                 </div>
                 
                 {/* Footer hints */}
-                <div className="border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 text-center text-[10px] text-gray-400 dark:text-gray-500 flex items-center justify-center gap-4">
-                    <span><kbd className="font-mono bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5">Esc</kbd> {t('spotlight_close')}</span>
+                <div className="flex items-center justify-center gap-4 border-t border-[var(--ui-border)] bg-[var(--ui-surface)] p-3 text-center text-[10px] text-gray-400 dark:text-gray-500">
+                    <span><kbd className="rounded border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-1.5 py-0.5 font-mono">Esc</kbd> {t('spotlight_close')}</span>
                 </div>
             </div>
         </div>

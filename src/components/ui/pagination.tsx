@@ -54,7 +54,7 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
             <button
                 disabled={currentPage === 1}
                 onClick={() => onPageChange(currentPage - 1)}
-                className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-white active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
+                className="p-2 rounded-lg text-gray-400 hover:text-[var(--ui-primary)] hover:bg-[var(--ui-surface)] active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
                 aria-label="Previous Page"
             >
                 <ChevronLeft className="h-4 w-4" />
@@ -62,11 +62,11 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
 
             <div 
                 ref={containerRef}
-                className="relative flex items-center p-1 bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100 shadow-sm"
+                className="relative flex items-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-1 shadow-sm"
             >
                 {/* Smooth sliding highlight */}
                 <div 
-                    className="absolute bg-indigo-600 shadow-lg shadow-indigo-200/50 rounded-lg transition-all duration-300 ease-in-out pointer-events-none h-8 z-0"
+                    className="absolute h-8 rounded-lg bg-[var(--ui-primary)] shadow-lg transition-all duration-300 ease-in-out pointer-events-none z-0"
                     style={{
                         left: `${highlightStyle.left}px`,
                         width: `${highlightStyle.width}px`,
@@ -89,7 +89,7 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
                                 relative z-10 w-8 h-8 rounded-lg text-xs font-bold transition-colors duration-200
                                 ${currentPage === page
                                     ? 'text-white'
-                                    : 'text-gray-500 hover:text-indigo-600'}
+                                    : 'text-gray-500 hover:text-[var(--ui-primary)]'}
                             `}
                         >
                             {page}
@@ -101,7 +101,7 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
             <button
                 disabled={currentPage === totalPages}
                 onClick={() => onPageChange(currentPage + 1)}
-                className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-white active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
+                className="p-2 rounded-lg text-gray-400 hover:text-[var(--ui-primary)] hover:bg-[var(--ui-surface)] active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
                 aria-label="Next Page"
             >
                 <ChevronRight className="h-4 w-4" />

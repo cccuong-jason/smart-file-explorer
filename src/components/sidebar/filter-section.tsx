@@ -36,7 +36,7 @@ export function FilterSection({
                     onClick={() => onChange(option.id)}
                     className={`
                         group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer transition-all
-                        ${isSelected ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}
+                        ${isSelected ? 'bg-[var(--ui-primary-soft)] text-[var(--ui-primary)]' : 'text-gray-600 hover:bg-[var(--ui-surface-muted)] dark:text-gray-300'}
                     `}
                 >
                     <div className="flex items-center gap-2.5">
@@ -44,8 +44,8 @@ export function FilterSection({
                             w-4 h-4 rounded border flex items-center justify-center transition-all flex-shrink-0
                             ${type === 'radio' ? 'rounded-full' : 'rounded-[4px]'}
                             ${isSelected
-                                ? 'bg-indigo-600 border-indigo-600'
-                                : 'border-gray-200 bg-white group-hover:border-indigo-300'}
+                                ? 'bg-[var(--ui-primary)] border-[var(--ui-primary)]'
+                                : 'border-[var(--ui-border)] bg-[var(--ui-surface)] group-hover:border-[var(--ui-primary-border)]'}
                         `}>
                             {isSelected && (
                                 type === 'radio'
@@ -56,7 +56,7 @@ export function FilterSection({
 
                         <span className={`text-sm flex items-center gap-2 ${isSelected ? 'font-medium' : ''}`}>
                             {option.icon && (
-                                <span className={`${isSelected ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'}`}>
+                                <span className={`${isSelected ? 'text-[var(--ui-primary)]' : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-500 dark:group-hover:text-gray-300'}`}>
                                     {option.icon}
                                 </span>
                             )}
@@ -67,7 +67,7 @@ export function FilterSection({
                     {option.count !== undefined && (
                         <span className={`
                             text-[10px] px-1.5 py-0.5 rounded-full font-medium transition-colors
-                            ${isSelected ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400 group-hover:bg-gray-200'}
+                            ${isSelected ? 'bg-[var(--ui-surface)] text-[var(--ui-primary)]' : 'bg-[var(--ui-surface-muted)] text-gray-400 group-hover:bg-[var(--ui-surface)] dark:text-gray-500'}
                         `}>
                             {option.count}
                         </span>
@@ -84,18 +84,18 @@ export function FilterSection({
     };
 
     return (
-        <div className="py-4 border-b border-gray-50 last:border-0">
+        <div className="py-4 border-b border-[var(--ui-border)] last:border-0">
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="flex items-center justify-between w-full text-left mb-3 group"
             >
-                <span className="text-xs font-bold uppercase tracking-wider text-gray-400 group-hover:text-indigo-600 transition-colors">
+                <span className="text-xs font-bold uppercase tracking-wider text-gray-400 group-hover:text-[var(--ui-primary)] transition-colors dark:text-gray-500">
                     {title}
                 </span>
                 {isExpanded ? (
-                    <ChevronDown className="h-3.5 w-3.5 text-gray-300 group-hover:text-indigo-500" />
+                    <ChevronDown className="h-3.5 w-3.5 text-gray-300 group-hover:text-[var(--ui-primary)] dark:text-gray-600" />
                 ) : (
-                    <ChevronRight className="h-3.5 w-3.5 text-gray-300 group-hover:text-indigo-500" />
+                    <ChevronRight className="h-3.5 w-3.5 text-gray-300 group-hover:text-[var(--ui-primary)] dark:text-gray-600" />
                 )}
             </button>
 

@@ -32,6 +32,20 @@
         "center": true,
         "visible": false,
         "skipTaskbar": true
+      },
+      {
+        "label": "tray-activity",
+        "url": "/tray-activity.html",
+        "title": "Tray Activity",
+        "width": 320,
+        "height": 106,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false,
+        "skipTaskbar": true,
+        "focus": false
       }
     ],
     "security": {
