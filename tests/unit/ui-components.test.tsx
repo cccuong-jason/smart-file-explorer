@@ -81,6 +81,30 @@ describe('shared UI components', () => {
     expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument();
   });
 
+  it('renders finalizing progress with a capped paused resume action', async () => {
+    const onTogglePause = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ProgressBar
+        isScanning
+        phase="finalizing"
+        discoveredCount={20}
+        processedCount={25}
+        totalKnownCount={20}
+        currentPath="handoff.pdf"
+        isPaused
+        onTogglePause={onTogglePause}
+      />
+    );
+
+    expect(screen.getByText('25 / 20')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(screen.getByText('handoff.pdf')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /resume/i }));
+    expect(onTogglePause).toHaveBeenCalledOnce();
+  });
+
   it('treats discovery progress as indeterminate and avoids 0 of n messaging', () => {
     render(
       <ProgressBar

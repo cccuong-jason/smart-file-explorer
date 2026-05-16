@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   collectChunkSignals,
   cosineSimilarity,
@@ -85,6 +85,15 @@ const chunks = [
 ];
 
 describe('search core ranking', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-10T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('returns zero cosine score when either vector has no magnitude', () => {
     expect(cosineSimilarity([0, 0], [1, 1])).toBe(0);
     expect(cosineSimilarity([1, 1], [0, 0])).toBe(0);
