@@ -1,5 +1,6 @@
-import { storeFile, getFile, storeFileChunks, type FileChunk, type FileMetadata } from './db';
+import { storeFile, getFile, storeFileChunks, storeVisualChunks, type FileChunk, type FileMetadata, type VisualIndexingStage } from './db';
 import { generateEmbeddingInBackground } from '../search/embedding-engine';
+import { generateVisualEmbeddingInBackground } from '../search/visual-embedding-engine';
 import { averageEmbeddings, splitTextIntoChunks } from '../search/chunking';
 import { invoke } from '@tauri-apps/api/core';
 import { classifyFile } from '../file-browser/classification';
@@ -19,6 +20,7 @@ interface ExtractedSegment {
     text: string;
     pageNumber?: number;
     sourceLabel?: string;
+    confidence?: number;
 }
 
 interface ProcessFileOptions {
@@ -28,7 +30,12 @@ interface ProcessFileOptions {
 
 function shouldRecommendOcr(fileName: string) {
     const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-    return ['pdf', 'png', 'jpg', 'jpeg'].includes(ext);
+    return ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(ext);
+}
+
+function shouldIndexVisual(fileName: string) {
+    const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+    return ['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(ext);
 }
 
 function buildBaseFileRecord(metadata: TauriFileMetadata, existing?: FileMetadata): FileMetadata {
@@ -47,6 +54,7 @@ function buildBaseFileRecord(metadata: TauriFileMetadata, existing?: FileMetadat
         isStarred: existing?.isStarred || false,
         processingStatus: 'pending',
         indexingStage: 'metadata',
+        visualIndexingStage: existing?.visualIndexingStage ?? 'none',
     };
 }
 
@@ -83,7 +91,8 @@ async function finalizeExtractedContent(
     name: string,
     segments: ExtractedSegment[],
     options: ProcessFileOptions = {},
-    ocrStatus?: FileMetadata['ocrStatus']
+    ocrStatus?: FileMetadata['ocrStatus'],
+    extraFileFields: Partial<FileMetadata> = {}
 ) {
     const content = segments.map((segment) => segment.text).join('\n\n').trim();
     if (!content) {
@@ -102,6 +111,7 @@ async function finalizeExtractedContent(
             ocrStatus,
             processingStatus: 'processing',
             indexingStage: 'content',
+            ...extraFileFields,
         },
         options.onFileUpdated
     );
@@ -128,9 +138,43 @@ async function finalizeExtractedContent(
         ocrStatus,
         processingStatus: 'completed',
         indexingStage: 'semantic',
+        ...extraFileFields,
     }, options.onFileUpdated);
 
     return true;
+}
+
+async function indexVisualImage(path: string, name: string, segments: ExtractedSegment[]): Promise<VisualIndexingStage | undefined> {
+    if (!shouldIndexVisual(name)) {
+        return undefined;
+    }
+
+    try {
+        const embedding = await generateVisualEmbeddingInBackground(path, name);
+        const ocrText = segments.map((segment) => segment.text).join('\n\n').trim() || undefined;
+        const confidenceValues = segments
+            .map((segment) => segment.confidence)
+            .filter((confidence): confidence is number => typeof confidence === 'number');
+
+        await storeVisualChunks(path, [{
+            id: `${path}::visual::0`,
+            filePath: path,
+            kind: 'image',
+            sourceLabel: 'Image content',
+            embedding,
+            ocrText,
+            ocrConfidence: confidenceValues.length > 0
+                ? Math.round(confidenceValues.reduce((sum, confidence) => sum + confidence, 0) / confidenceValues.length)
+                : undefined,
+            createdAt: Date.now(),
+        }]);
+
+        return 'completed';
+    } catch (error) {
+        console.warn(`Visual embedding failed for ${name}:`, error);
+        await storeVisualChunks(path, []);
+        return 'failed';
+    }
 }
 
 export async function stageFileForIndexing(metadata: TauriFileMetadata) {
@@ -203,13 +247,16 @@ export async function processFile(metadata: TauriFileMetadata, options: ProcessF
 
             try {
                 const ocrSegments = await runLocalOcr(path, name);
+                const visualIndexingStage = await indexVisualImage(path, name, ocrSegments);
+                const visualFields = visualIndexingStage ? { visualIndexingStage } : {};
                 const hasOcrContent = await finalizeExtractedContent(
                     dbMeta,
                     path,
                     name,
                     ocrSegments,
                     options,
-                    'completed'
+                    'completed',
+                    visualFields
                 );
 
                 if (hasOcrContent) {
@@ -222,6 +269,7 @@ export async function processFile(metadata: TauriFileMetadata, options: ProcessF
                     ocrStatus: 'recommended',
                     processingStatus: 'completed',
                     indexingStage: 'metadata',
+                    ...visualFields,
                 }, options.onFileUpdated);
                 return;
             } catch (ocrError) {

@@ -21,6 +21,16 @@ export interface SearchableChunk {
   sourceLabel?: string;
 }
 
+export interface SearchableVisualChunk {
+  id: string;
+  filePath: string;
+  kind: 'image';
+  sourceLabel: string;
+  embedding?: number[];
+  ocrText?: string;
+  ocrConfidence?: number;
+}
+
 export type SearchReasonCode =
   | 'exact_name'
   | 'filename_match'
@@ -30,7 +40,10 @@ export type SearchReasonCode =
   | 'tag_match'
   | 'starred'
   | 'recent_update'
-  | 'latest_signal';
+  | 'latest_signal'
+  | 'visual_semantic'
+  | 'ocr_text'
+  | 'ocr_confidence';
 
 export type SearchConfidence = 'high' | 'medium' | 'low';
 
@@ -71,6 +84,14 @@ export interface ChunkSignal {
   reasons: SearchReasonCode[];
   snippet?: string;
   locationLabel?: string;
+}
+
+export interface VisualSignal {
+  score: number;
+  reasons: SearchReasonCode[];
+  snippet?: string;
+  locationLabel?: string;
+  evidence: Partial<Record<SearchReasonCode, string[]>>;
 }
 
 const STOP_WORDS = new Set([
@@ -281,6 +302,7 @@ export function rankSearchResults({
   files,
   queryEmbedding,
   chunkSignals,
+  visualSignals,
   semanticEnabled = true,
   maxResults = DEFAULT_MAX_SEARCH_RESULTS,
 }: {
@@ -288,6 +310,7 @@ export function rankSearchResults({
   files: SearchableFile[];
   queryEmbedding?: number[];
   chunkSignals?: Map<string, ChunkSignal>;
+  visualSignals?: Map<string, VisualSignal>;
   semanticEnabled?: boolean;
   maxResults?: number;
 }) {
@@ -327,6 +350,7 @@ export function rankSearchResults({
     const tagTokens = tokenize((file.tags || []).join(' '));
     const snippet = buildSnippet(file, queryTokens);
     const chunkSignal = chunkSignals?.get(file.path);
+    const visualSignal = visualSignals?.get(file.path);
 
     if (chunkSignal) {
       entry.score += chunkSignal.score;
@@ -345,6 +369,23 @@ export function rankSearchResults({
       });
       if (!entry.snippet && chunkSignal.snippet) {
         entry.snippet = chunkSignal.snippet;
+      }
+    }
+
+    if (visualSignal) {
+      entry.score += visualSignal.score;
+      visualSignal.reasons.forEach((reason) => {
+        addScore(
+          entry,
+          0,
+          reason,
+          visualSignal.snippet,
+          visualSignal.evidence[reason] ?? [],
+          visualSignal.locationLabel
+        );
+      });
+      if (!entry.snippet && visualSignal.snippet) {
+        entry.snippet = visualSignal.snippet;
       }
     }
 
@@ -449,11 +490,78 @@ export function rankSearchResults({
         reasons: Array.from(metadata.reasons),
         factors: buildFactors(metadata),
         snippet: metadata.snippet,
-        locationLabel: chunkSignals?.get(path)?.locationLabel,
+        locationLabel: chunkSignals?.get(path)?.locationLabel ?? visualSignals?.get(path)?.locationLabel,
         isLikelyLatest: metadata.isLikelyLatest || undefined,
       } satisfies RankedSearchResult];
     })
     .slice(0, maxResults);
+}
+
+export function collectVisualSignals({
+  query,
+  visualChunks,
+  queryEmbedding,
+  semanticEnabled = true,
+}: {
+  query: string;
+  visualChunks: SearchableVisualChunk[];
+  queryEmbedding?: number[];
+  semanticEnabled?: boolean;
+}) {
+  const queryTokens = getEffectiveQueryTokens(query);
+  const signals = new Map<string, VisualSignal>();
+
+  for (const chunk of visualChunks) {
+    let score = 0;
+    const reasons = new Set<SearchReasonCode>();
+    const evidence: Partial<Record<SearchReasonCode, string[]>> = {};
+    const snippet = chunk.ocrText ? buildSnippetFromText(chunk.ocrText, queryTokens) : undefined;
+
+    if (semanticEnabled && queryEmbedding && chunk.embedding) {
+      const similarity = cosineSimilarity(queryEmbedding, chunk.embedding);
+      if (similarity > 0.2) {
+        score += similarity * 0.42;
+        reasons.add('visual_semantic');
+        evidence.visual_semantic = [`Image matched visual meaning in ${chunk.sourceLabel}`];
+      }
+    }
+
+    if (chunk.ocrText) {
+      const ocrTokens = tokenize(chunk.ocrText);
+      const ocrOverlap = overlapCount(queryTokens, ocrTokens);
+      if (ocrOverlap > 0) {
+        const matchedTerms = getMatchedTerms(queryTokens, ocrTokens);
+        score += Math.min(0.12 + ocrOverlap * 0.06, 0.24);
+        reasons.add('ocr_text');
+        evidence.ocr_text = [
+          `OCR text: ${chunk.ocrText}`,
+          ...(matchedTerms.length > 0 ? [`Matched OCR terms: ${matchedTerms.join(', ')}`] : []),
+        ];
+      }
+
+      if ((chunk.ocrConfidence ?? 0) >= 80 && score > 0) {
+        reasons.add('ocr_confidence');
+        evidence.ocr_confidence = [`OCR confidence: ${chunk.ocrConfidence}`];
+      }
+    }
+
+    if (score <= 0) {
+      continue;
+    }
+
+    const current = signals.get(chunk.filePath);
+    if (!current || score > current.score) {
+      signals.set(chunk.filePath, {
+        score,
+        reasons: Array.from(reasons),
+        snippet,
+        locationLabel: chunk.sourceLabel,
+        evidence,
+      });
+    }
+  }
+
+  return signals;
 }
 
 export function collectChunkSignals({

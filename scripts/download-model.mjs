@@ -18,22 +18,38 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const MODEL_DIR = path.join(ROOT, 'public', 'models', 'Xenova', 'all-MiniLM-L6-v2');
-const BASE_URL = 'https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main';
-
-// Required files for @xenova/transformers
-const REQUIRED_FILES = [
-  'config.json',
-  'tokenizer.json',
-  'tokenizer_config.json',
-  'special_tokens_map.json',
-  'onnx/model_quantized.onnx',
-];
-
-// Optional files that some model variants may request; provide stubs if missing
-const OPTIONAL_FILES = [
-  'added_tokens.json',
-  'preprocessor_config.json',
+const MODELS = [
+    {
+        id: 'Xenova/all-MiniLM-L6-v2',
+        requiredFiles: [
+            'config.json',
+            'tokenizer.json',
+            'tokenizer_config.json',
+            'special_tokens_map.json',
+            'onnx/model_quantized.onnx',
+        ],
+        optionalFiles: [
+            'added_tokens.json',
+            'preprocessor_config.json',
+        ],
+    },
+    {
+        id: 'Xenova/clip-vit-base-patch32',
+        requiredFiles: [
+            'config.json',
+            'merges.txt',
+            'preprocessor_config.json',
+            'special_tokens_map.json',
+            'tokenizer.json',
+            'tokenizer_config.json',
+            'vocab.json',
+            'onnx/text_model_quantized.onnx',
+            'onnx/vision_model_quantized.onnx',
+        ],
+        optionalFiles: [
+            'added_tokens.json',
+        ],
+    },
 ];
 
 async function download(url, dest, minValidSize = 100) {
@@ -57,51 +73,51 @@ async function download(url, dest, minValidSize = 100) {
 
 async function main() {
     console.log('Downloading AI model assets for offline use...');
-    console.log(`   Model: Xenova/all-MiniLM-L6-v2`);
     console.log(`   Destination: public/models/\n`);
 
-    // Ensure directories exist
-    fs.mkdirSync(path.join(MODEL_DIR, 'onnx'), { recursive: true });
+    for (const model of MODELS) {
+        const modelDir = path.join(ROOT, 'public', 'models', ...model.id.split('/'));
+        const baseUrl = `https://huggingface.co/${model.id}/resolve/main`;
 
-    // Download required files
-    for (const file of REQUIRED_FILES) {
-        const url = `${BASE_URL}/${file}`;
-        const dest = path.join(MODEL_DIR, file);
+        console.log(`   Model: ${model.id}`);
+        fs.mkdirSync(path.join(modelDir, 'onnx'), { recursive: true });
 
-        process.stdout.write(`  - ${file}... `);
-        try {
-            await download(url, dest);
-        } catch (err) {
-            process.stdout.write(`\n`);
-            console.error(`  ERROR: ${err.message}`);
-            process.exit(1);
-        }
-    }
+        for (const file of model.requiredFiles) {
+            const url = `${baseUrl}/${file}`;
+            const dest = path.join(modelDir, file);
 
-    // Handle optional files: try to download; if 404, create minimal stub
-    for (const file of OPTIONAL_FILES) {
-        const url = `${BASE_URL}/${file}`;
-        const dest = path.join(MODEL_DIR, file);
-        process.stdout.write(`  - ${file} (optional)... `);
-        try {
-            await download(url, dest, 1);
-        } catch (err) {
-            if (String(err.message).includes('404')) {
-                // Create minimal valid JSON stub to satisfy loaders
-                const stub =
-                  file === 'added_tokens.json'
-                    ? { added_tokens: [] }
-                    : {};
-                fs.writeFileSync(dest, JSON.stringify(stub));
-                process.stdout.write(`stubbed\n`);
-            } else {
+            process.stdout.write(`  - ${file}... `);
+            try {
+                await download(url, dest);
+            } catch (err) {
                 process.stdout.write(`\n`);
-                console.error(`  Skipped optional file due to error: ${err.message}`);
+                console.error(`  ERROR: ${err.message}`);
+                process.exit(1);
             }
         }
+
+        for (const file of model.optionalFiles) {
+            const url = `${baseUrl}/${file}`;
+            const dest = path.join(modelDir, file);
+            process.stdout.write(`  - ${file} (optional)... `);
+            try {
+                await download(url, dest, 1);
+            } catch (err) {
+                if (String(err.message).includes('404')) {
+                    const stub = file === 'added_tokens.json' ? { added_tokens: [] } : {};
+                    fs.writeFileSync(dest, JSON.stringify(stub));
+                    process.stdout.write(`stubbed\n`);
+                } else {
+                    process.stdout.write(`\n`);
+                    console.error(`  Skipped optional file due to error: ${err.message}`);
+                }
+            }
+        }
+
+        console.log('');
     }
 
-    console.log('\nAI model assets ready.');
+    console.log('AI model assets ready.');
 }
 
 main();

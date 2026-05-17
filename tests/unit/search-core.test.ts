@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   collectChunkSignals,
+  collectVisualSignals,
   cosineSimilarity,
   rankSearchResults,
   findRelatedFileMatches,
@@ -81,6 +82,19 @@ const chunks = [
     embedding: [0.6, 0.4, 0],
     sourceLabel: 'Page 1',
     pageNumber: 1,
+  },
+];
+
+const visualChunks = [
+  {
+    id: '/images/dashboard.png::visual::0',
+    filePath: '/images/dashboard.png',
+    kind: 'image' as const,
+    sourceLabel: 'Image content',
+    embedding: [0, 1, 0],
+    ocrText: 'Q4 revenue dashboard',
+    ocrConfidence: 91,
+    createdAt: new Date('2026-03-30').getTime(),
   },
 ];
 
@@ -222,6 +236,186 @@ describe('search core ranking', () => {
     expect(results[0]?.file.path).toBe('/clients/acme/proposals/Acme Proposal v3 final.docx');
     expect(results[0]?.snippet).toContain('pricing');
     expect(results[0]?.locationLabel).toBe('Page 2');
+  });
+
+  it('uses visual embeddings to rank image-only files from natural language queries', () => {
+    const visualSignals = collectVisualSignals({
+      query: 'dashboard chart',
+      visualChunks,
+      queryEmbedding: [0, 1, 0],
+      semanticEnabled: true,
+    });
+
+    const results = rankSearchResults({
+      query: 'dashboard chart',
+      files: [
+        {
+          path: '/images/dashboard.png',
+          name: 'dashboard.png',
+          lastModified: new Date('2026-03-30').getTime(),
+        },
+      ],
+      semanticEnabled: true,
+      visualSignals,
+    });
+
+    expect(results[0]?.file.path).toBe('/images/dashboard.png');
+    expect(results[0]?.reasons).toEqual(expect.arrayContaining(['visual_semantic', 'ocr_text']));
+    expect(results[0]?.locationLabel).toBe('Image content');
+    expect(results[0]?.factors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'visual_semantic',
+          evidence: expect.arrayContaining([expect.stringContaining('visual meaning')]),
+        }),
+        expect.objectContaining({
+          code: 'ocr_text',
+          evidence: expect.arrayContaining([expect.stringContaining('Q4 revenue dashboard')]),
+        }),
+      ])
+    );
+  });
+
+  it('collects OCR-only visual signals without semantic embeddings', () => {
+    const visualSignals = collectVisualSignals({
+      query: 'invoice total',
+      visualChunks: [
+        {
+          id: '/images/invoice.png::visual::0',
+          filePath: '/images/invoice.png',
+          kind: 'image',
+          sourceLabel: 'Image content',
+          ocrText: 'Invoice total due Friday',
+          ocrConfidence: 72,
+        },
+      ],
+    });
+
+    const signal = visualSignals.get('/images/invoice.png');
+
+    expect(signal?.reasons).toEqual(['ocr_text']);
+    expect(signal?.snippet).toContain('Invoice total');
+    expect(signal?.evidence.ocr_text).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Invoice total due Friday'),
+        expect.stringContaining('invoice, total'),
+      ])
+    );
+  });
+
+  it('skips weak visual chunks and keeps the strongest visual signal per file', () => {
+    const visualSignals = collectVisualSignals({
+      query: 'sunset',
+      visualChunks: [
+        {
+          id: '/images/scene.png::visual::0',
+          filePath: '/images/scene.png',
+          kind: 'image',
+          sourceLabel: 'Hero image',
+          embedding: [1, 0],
+        },
+        {
+          id: '/images/scene.png::visual::1',
+          filePath: '/images/scene.png',
+          kind: 'image',
+          sourceLabel: 'Thumbnail',
+          embedding: [0.9, 0.2],
+        },
+        {
+          id: '/images/noise.png::visual::0',
+          filePath: '/images/noise.png',
+          kind: 'image',
+          sourceLabel: 'Image content',
+          embedding: [0, 1],
+        },
+      ],
+      queryEmbedding: [1, 0],
+      semanticEnabled: true,
+    });
+
+    expect(visualSignals.get('/images/scene.png')?.locationLabel).toBe('Hero image');
+    expect(visualSignals.get('/images/scene.png')?.snippet).toBeUndefined();
+    expect(visualSignals.has('/images/noise.png')).toBe(false);
+  });
+
+  it('ignores OCR text that does not overlap the query when visual semantics cannot help', () => {
+    const visualSignals = collectVisualSignals({
+      query: 'roadmap',
+      visualChunks: [
+        {
+          id: '/images/receipt.png::visual::0',
+          filePath: '/images/receipt.png',
+          kind: 'image',
+          sourceLabel: 'Image content',
+          ocrText: 'parking receipt paid in cash',
+        },
+      ],
+      queryEmbedding: [1, 0],
+      semanticEnabled: true,
+    });
+
+    expect(visualSignals.size).toBe(0);
+  });
+
+  it('uses visual snippets and fallback evidence when ranking visual-only matches', () => {
+    const results = rankSearchResults({
+      query: 'wireframe',
+      files: [
+        {
+          path: '/images/mockup.png',
+          name: 'mockup.png',
+        },
+      ],
+      semanticEnabled: false,
+      visualSignals: new Map([
+        [
+          '/images/mockup.png',
+          {
+            score: 0.5,
+            reasons: ['visual_semantic'],
+            snippet: 'Landing page wireframe',
+            locationLabel: 'Image content',
+            evidence: {},
+          },
+        ],
+      ]),
+    });
+
+    expect(results[0]?.snippet).toBe('Landing page wireframe');
+    expect(results[0]?.factors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'visual_semantic',
+          evidence: [],
+        }),
+      ])
+    );
+  });
+
+  it('drops visual-only rank candidates below the result threshold', () => {
+    const results = rankSearchResults({
+      query: 'thumbnail',
+      files: [
+        {
+          path: '/images/tiny.png',
+          name: 'tiny.png',
+        },
+      ],
+      semanticEnabled: false,
+      visualSignals: new Map([
+        [
+          '/images/tiny.png',
+          {
+            score: 0.05,
+            reasons: ['visual_semantic'],
+            locationLabel: 'Image content',
+            evidence: {},
+          },
+        ],
+      ]),
+    });
+
+    expect(results).toEqual([]);
   });
 });
 

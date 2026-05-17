@@ -4,12 +4,14 @@ import { writeTextFile } from '@tauri-apps/plugin-fs';
 import type { FileClassification } from '../file-browser/classification';
 
 export type FileIndexingStage = 'metadata' | 'content' | 'semantic' | 'failed';
+export type VisualIndexingStage = 'none' | 'processing' | 'completed' | 'failed';
 export type OcrStatus = 'recommended' | 'processing' | 'completed' | 'failed';
 
 export interface FileMetadata extends FileClassification {
     processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
     ocrStatus?: OcrStatus;
     indexingStage?: FileIndexingStage;
+    visualIndexingStage?: VisualIndexingStage;
     path: string;
     name: string;
     size: number;
@@ -29,6 +31,17 @@ export interface FileChunk {
     embedding?: number[];
     pageNumber?: number;
     sourceLabel?: string;
+}
+
+export interface VisualChunk {
+    id: string;
+    filePath: string;
+    kind: 'image';
+    sourceLabel: string;
+    embedding: number[];
+    ocrText?: string;
+    ocrConfidence?: number;
+    createdAt: number;
 }
 
 export interface WorkspaceAiSummaryRecord {
@@ -64,6 +77,11 @@ interface SmartFileExplorerDB extends DBSchema {
         value: FileChunk;
         indexes: { 'by-file-path': string; 'by-file-path-and-index': [string, number] };
     };
+    visualChunks: {
+        key: string;
+        value: VisualChunk;
+        indexes: { 'by-file-path': string };
+    };
     workspaceAiSummaries: {
         key: string;
         value: WorkspaceAiSummaryRecord;
@@ -75,7 +93,7 @@ interface SmartFileExplorerDB extends DBSchema {
 }
 
 const DB_NAME = 'smart-file-explorer-db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 let dbPromise: Promise<IDBPDatabase<SmartFileExplorerDB>>;
 
@@ -105,6 +123,10 @@ export const getDB = () => {
                 }
                 if (oldVersion < 6) {
                     db.createObjectStore('watchedFolders', { keyPath: 'path' });
+                }
+                if (oldVersion < 7) {
+                    const visualChunkStore = db.createObjectStore('visualChunks', { keyPath: 'id' });
+                    visualChunkStore.createIndex('by-file-path', 'filePath');
                 }
             },
         });
@@ -159,6 +181,34 @@ export const getFileChunks = async (filePath: string) => {
 export const getAllChunks = async () => {
     const db = await getDB();
     return db.getAll('chunks');
+};
+
+export const storeVisualChunks = async (filePath: string, chunks: VisualChunk[]) => {
+    const db = await getDB();
+    const tx = db.transaction('visualChunks', 'readwrite');
+    const index = tx.store.index('by-file-path');
+    let cursor = await index.openCursor(IDBKeyRange.only(filePath));
+
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+
+    for (const chunk of chunks) {
+        await tx.store.put(chunk);
+    }
+
+    await tx.done;
+};
+
+export const getVisualChunks = async (filePath: string) => {
+    const db = await getDB();
+    return db.getAllFromIndex('visualChunks', 'by-file-path', filePath);
+};
+
+export const getAllVisualChunks = async () => {
+    const db = await getDB();
+    return db.getAll('visualChunks');
 };
 
 export const storeWorkspaceAiSummary = async (summary: WorkspaceAiSummaryRecord) => {
@@ -282,13 +332,14 @@ export const clearDatabase = async () => {
     const db = await getDB();
     await db.clear('files');
     await db.clear('chunks');
+    await db.clear('visualChunks');
     await db.clear('workspaceAiSummaries');
     await db.clear('watchedFolders');
 }
 
 export const deleteFile = async (path: string) => {
     const db = await getDB();
-    const tx = db.transaction(['files', 'chunks'], 'readwrite');
+    const tx = db.transaction(['files', 'chunks', 'visualChunks'], 'readwrite');
     await tx.objectStore('files').delete(path);
 
     const chunkIndex = tx.objectStore('chunks').index('by-file-path');
@@ -296,6 +347,13 @@ export const deleteFile = async (path: string) => {
     while (cursor) {
         await cursor.delete();
         cursor = await cursor.continue();
+    }
+
+    const visualChunkIndex = tx.objectStore('visualChunks').index('by-file-path');
+    let visualCursor = await visualChunkIndex.openCursor(IDBKeyRange.only(path));
+    while (visualCursor) {
+        await visualCursor.delete();
+        visualCursor = await visualCursor.continue();
     }
 
     await tx.done;
