@@ -150,4 +150,65 @@ describe('tree view model', () => {
       'C:/Users/jason/Downloads/proposals/2026',
     ]);
   });
+
+  it('falls back to the indexed file hierarchy when watched folder records are missing', () => {
+    const tree = buildTreeView(
+      [
+        {
+          path: 'C:/Users/jason/Downloads/file-sample_500kB.docx',
+          name: 'file-sample_500kB.docx',
+          size: 1,
+          lastModified: 40,
+        },
+        {
+          path: 'C:/Users/jason/Downloads/contracts/client-agreement.docx',
+          name: 'client-agreement.docx',
+          size: 1,
+          lastModified: 30,
+        },
+      ],
+      [],
+      {
+        sortBy: 'name',
+        sortOrder: 'asc',
+      }
+    );
+
+    expect(flattenVisibleTreePaths(tree)).toEqual([
+      'C:/Users/jason/Downloads',
+      'C:/Users/jason/Downloads/contracts',
+      'C:/Users/jason/Downloads/contracts/client-agreement.docx',
+      'C:/Users/jason/Downloads/file-sample_500kB.docx',
+    ]);
+  });
+
+  it('matches native Windows device-prefixed watched roots with normal file paths', () => {
+    const tree = buildTreeView(
+      [
+        {
+          path: 'C:\\Users\\jason\\Downloads\\1mb (1).docx',
+          name: '1mb (1).docx',
+          size: 1,
+          lastModified: 50,
+        },
+      ],
+      [
+        {
+          path: '\\\\?\\C:\\Users\\jason\\Downloads',
+          enabled: true,
+          status: 'watching',
+        },
+      ],
+      {
+        sortBy: 'name',
+        sortOrder: 'asc',
+      }
+    );
+
+    expect(flattenVisibleTreePaths(tree)).toEqual([
+      'C:/Users/jason/Downloads',
+      'C:\\Users\\jason\\Downloads\\1mb (1).docx',
+    ]);
+  });
+
 });

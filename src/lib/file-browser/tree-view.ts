@@ -28,7 +28,10 @@ interface BuildTreeViewOptions {
 }
 
 function normalizePath(path: string) {
-  return path.replace(/\\/g, '/');
+  return path
+    .replace(/^\\\\\?\\/, '')
+    .replace(/^\\\?\\/, '')
+    .replace(/\\/g, '/');
 }
 
 function comparePath(a: string, b: string) {
@@ -58,6 +61,71 @@ function getRelativeSegments(filePath: string, rootPath: string) {
   const normalizedRootPath = normalizePath(rootPath);
   const relativePath = normalizedFilePath.slice(normalizedRootPath.length).replace(/^\/+/, '');
   return relativePath.split('/').filter(Boolean);
+}
+
+function getPathSegments(path: string) {
+  return normalizePath(path).split('/').filter(Boolean);
+}
+
+function getDirectoryPath(filePath: string) {
+  const segments = getPathSegments(filePath);
+  if (segments.length <= 1) {
+    return normalizePath(filePath);
+  }
+
+  return segments.slice(0, -1).join('/');
+}
+
+function getCommonDirectory(paths: string[]) {
+  const segmentGroups = paths
+    .map((path) => getPathSegments(path))
+    .filter((segments) => segments.length > 0);
+
+  if (segmentGroups.length === 0) {
+    return null;
+  }
+
+  const [firstGroup, ...remainingGroups] = segmentGroups;
+  const commonSegments: string[] = [];
+
+  for (let index = 0; index < firstGroup.length; index += 1) {
+    const segment = firstGroup[index];
+    if (remainingGroups.every((segments) => segments[index] === segment)) {
+      commonSegments.push(segment);
+      continue;
+    }
+
+    break;
+  }
+
+  return commonSegments.length > 0 ? commonSegments.join('/') : null;
+}
+
+function getPathAnchor(path: string) {
+  const segments = getPathSegments(path);
+  return segments[0]?.toLowerCase() ?? '';
+}
+
+function inferWatchedRootsFromFiles(files: BrowserFileRecord[]): WatchedFolderRecord[] {
+  const directoryPathsByAnchor = new Map<string, string[]>();
+
+  for (const file of files) {
+    const directoryPath = getDirectoryPath(file.path);
+    const anchor = getPathAnchor(directoryPath);
+    const paths = directoryPathsByAnchor.get(anchor) ?? [];
+    paths.push(directoryPath);
+    directoryPathsByAnchor.set(anchor, paths);
+  }
+
+  return Array.from(directoryPathsByAnchor.values())
+    .map((directoryPaths) => getCommonDirectory(directoryPaths))
+    .filter((path): path is string => Boolean(path))
+    .sort(comparePath)
+    .map((path) => ({
+      path,
+      enabled: true,
+      status: 'watching',
+    }));
 }
 
 function sortTreeNodes(nodes: TreeNode[], sortBy: SortBy, sortOrder: SortOrder): TreeNode[] {
@@ -93,25 +161,30 @@ export function buildTreeView(
   options: BuildTreeViewOptions
 ): TreeFolderNode[] {
   const rootMap = new Map<string, TreeFolderNode>();
+  const enabledWatchedFolders = watchedFolders.filter((entry) => entry.enabled);
+  const effectiveWatchedFolders = enabledWatchedFolders.length > 0
+    ? enabledWatchedFolders
+    : inferWatchedRootsFromFiles(files);
 
-  for (const folder of [...watchedFolders].filter((entry) => entry.enabled).sort((a, b) => comparePath(a.path, b.path))) {
-    rootMap.set(folder.path, {
+  for (const folder of [...effectiveWatchedFolders].sort((a, b) => comparePath(a.path, b.path))) {
+    const rootPath = normalizePath(folder.path);
+    rootMap.set(rootPath, {
       kind: 'folder',
-      id: folder.path,
-      name: getLastSegment(folder.path),
-      path: folder.path,
+      id: rootPath,
+      name: getLastSegment(rootPath),
+      path: rootPath,
       children: [],
       isRoot: true,
     });
   }
 
   for (const file of files) {
-    const root = findNearestWatchedRoot(file.path, watchedFolders);
+    const root = findNearestWatchedRoot(file.path, effectiveWatchedFolders);
     if (!root) {
       continue;
     }
 
-    const rootNode = rootMap.get(root.path);
+    const rootNode = rootMap.get(normalizePath(root.path));
     if (!rootNode) {
       continue;
     }

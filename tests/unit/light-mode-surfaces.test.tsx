@@ -88,9 +88,9 @@ describe('light mode surfaces', () => {
     );
 
     const markup = container.innerHTML;
-    expect(markup).toContain('bg-[var(--ui-surface)]');
-    expect(markup).toContain('bg-[var(--ui-surface-muted)]');
-    expect(markup).toContain('border-[var(--ui-border)]');
+    expect(markup).toContain('bg-card');
+    expect(markup).toContain('bg-secondary');
+    expect(markup).toContain('border-border');
   });
 
   it('renders toast cards with tokenized light-mode surfaces', async () => {

@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   createTrayActivityComplete,
   createTrayActivityIndexing,
+  createTrayActivityDetected,
   getTrayActivityVisibility,
+  shouldTrayActivityOwnWatchEvent,
   shouldShowTrayActivityForWatchEvent,
 } from '@/lib/tray-activity/state';
 
@@ -21,7 +23,16 @@ describe('tray activity state', () => {
     ).toBe(true);
   });
 
-  it('ignores existing file updates and visible main-window activity', () => {
+  it('shows new watched additions even while the main window is visible', () => {
+    expect(
+      shouldShowTrayActivityForWatchEvent({
+        isNewWatchedAddition: true,
+        isMainWindowVisible: true,
+      })
+    ).toBe(true);
+  });
+
+  it('ignores existing file updates', () => {
     expect(
       shouldShowTrayActivityForWatchEvent({
         isNewWatchedAddition: false,
@@ -31,10 +42,15 @@ describe('tray activity state', () => {
 
     expect(
       shouldShowTrayActivityForWatchEvent({
-        isNewWatchedAddition: true,
+        isNewWatchedAddition: false,
         isMainWindowVisible: true,
       })
     ).toBe(false);
+  });
+
+  it('lets the tray activity window own watch events while the main window is hidden', () => {
+    expect(shouldTrayActivityOwnWatchEvent({ isMainWindowVisible: false })).toBe(true);
+    expect(shouldTrayActivityOwnWatchEvent({ isMainWindowVisible: true })).toBe(false);
   });
 
   it('builds indexing progress with a friendly fallback label', () => {
@@ -52,6 +68,22 @@ describe('tray activity state', () => {
         fileName: 'proposal-final.docx',
         watchLabel: 'Downloads',
         progressPercent: 25,
+      })
+    );
+  });
+
+  it('builds a lightweight detected state from a native watch event path', () => {
+    expect(
+      createTrayActivityDetected({
+        path: '\\\\?\\C:\\Users\\jason\\Downloads\\1mb (1).docx',
+        detectedAt: 1_000,
+      })
+    ).toEqual(
+      expect.objectContaining({
+        kind: 'indexing',
+        filePath: 'C:\\Users\\jason\\Downloads\\1mb (1).docx',
+        fileName: '1mb (1).docx',
+        progressPercent: 5,
       })
     );
   });

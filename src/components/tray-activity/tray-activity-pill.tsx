@@ -23,11 +23,11 @@ export function TrayActivityPill({ activity, onOpenApp }: TrayActivityPillProps)
     <button
       type="button"
       onClick={onOpenApp}
-      className="group flex w-[320px] flex-col gap-3 rounded-[22px] border border-[var(--ui-border)] bg-[color:color-mix(in_srgb,var(--ui-surface)_92%,transparent)] px-4 py-3 text-left text-[var(--foreground)] shadow-[0_20px_45px_rgba(15,23,42,0.22)] backdrop-blur-xl transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary-border)]"
+      className="group flex w-[320px] flex-col gap-3 rounded border-2 border-border bg-card px-4 py-3 text-left text-card-foreground shadow-md transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] text-[var(--ui-primary)]">
+          <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded border-2 border-border bg-secondary text-primary">
             {isComplete ? (
               <CheckCircle2 className="h-4 w-4 text-[var(--ui-success)]" />
             ) : (
@@ -35,10 +35,10 @@ export function TrayActivityPill({ activity, onOpenApp }: TrayActivityPillProps)
             )}
           </div>
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold leading-5">
+            <div className="font-head text-[13px] font-semibold leading-5">
               {isComplete ? t('tray_activity_complete_title') : t('tray_activity_indexing_title')}
             </div>
-            <div className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--ui-secondary)]">
+            <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
               <Radar className="h-3 w-3" />
               <span className="truncate">
                 {activity.kind === 'indexing' && activity.watchLabel
@@ -48,7 +48,7 @@ export function TrayActivityPill({ activity, onOpenApp }: TrayActivityPillProps)
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-[11px] font-semibold text-[var(--ui-primary)]">
+        <div className="flex items-center gap-1 font-head text-[11px] font-semibold text-primary">
           <span>{isComplete ? t('tray_activity_open_app') : `${activity.progressPercent}%`}</span>
           <ArrowUpRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </div>
@@ -56,14 +56,14 @@ export function TrayActivityPill({ activity, onOpenApp }: TrayActivityPillProps)
 
       <div className="min-w-0">
         <div
-          className="truncate text-[12px] font-medium text-[var(--foreground)]"
+          className="truncate text-[12px] font-medium text-foreground"
           title={activity.fileName}
         >
           {activity.fileName}
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--ui-surface-muted)]">
+        <div className="mt-2 h-2 overflow-hidden rounded border-2 border-border bg-secondary">
           <div
-            className={`h-full rounded-full transition-all duration-300 ${
+            className={`h-full rounded transition-all duration-300 ${
               isComplete
                 ? 'bg-[var(--ui-success)]'
                 : 'bg-[linear-gradient(90deg,var(--ui-primary)_0%,var(--ui-success)_100%)]'

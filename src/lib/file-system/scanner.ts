@@ -4,6 +4,7 @@ import { averageEmbeddings, splitTextIntoChunks } from '../search/chunking';
 import { invoke } from '@tauri-apps/api/core';
 import { classifyFile } from '../file-browser/classification';
 import { runLocalOcr } from '../ocr/ocr-engine';
+import { logEvent } from '../telemetry/logger';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit for content extraction
 
@@ -114,6 +115,15 @@ async function finalizeExtractedContent(
             }
         } catch (err) {
             console.warn(`Chunk embedding failed for ${name}#${chunk.index}:`, err);
+            void logEvent({
+                level: 'warn',
+                area: 'indexing',
+                event: 'embedding.chunk_failed',
+                message: 'Chunk embedding failed',
+                path,
+                error: err instanceof Error ? err.message : String(err),
+                data: { name, chunkIndex: chunk.index },
+            });
         }
     }
 
@@ -226,6 +236,15 @@ export async function processFile(metadata: TauriFileMetadata, options: ProcessF
                 return;
             } catch (ocrError) {
                 console.warn(`OCR failed for ${name}:`, ocrError);
+                void logEvent({
+                    level: 'warn',
+                    area: 'indexing',
+                    event: 'ocr.failed',
+                    message: 'OCR failed while processing file',
+                    path,
+                    error: ocrError instanceof Error ? ocrError.message : String(ocrError),
+                    data: { name },
+                });
                 await storeFileChunks(path, []);
                 await emitFileUpdate({
                     ...dbMeta,
@@ -246,6 +265,15 @@ export async function processFile(metadata: TauriFileMetadata, options: ProcessF
         }, options.onFileUpdated);
     } catch (error) {
         console.error(`Error processing file ${name}:`, error);
+        void logEvent({
+            level: 'error',
+            area: 'indexing',
+            event: 'file.processing_failed',
+            message: 'File processing failed',
+            path,
+            error: error instanceof Error ? error.message : String(error),
+            data: { name },
+        });
         await storeFileChunks(path, []);
         await emitFileUpdate({
             ...dbMeta,

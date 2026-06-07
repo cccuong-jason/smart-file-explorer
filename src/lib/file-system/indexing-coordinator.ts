@@ -9,6 +9,7 @@ import {
   type ScanSessionProgress,
   type ScanSessionScope,
 } from './scan-session';
+import { logEvent } from '@/lib/telemetry/logger';
 
 export type IndexingCoordinatorEvent =
   | {
@@ -170,6 +171,14 @@ export class IndexingCoordinator {
     }
 
     this.sessions.set(sessionId, session);
+    void logEvent({
+      level: 'info',
+      area: 'indexing',
+      event: 'session.started',
+      message: `Started ${scope} indexing session`,
+      sessionId,
+      data: { scope, watchPath: options.watchPath },
+    });
     this.emitProgress(session);
     return cloneProgress(session);
   }
@@ -208,6 +217,15 @@ export class IndexingCoordinator {
       this.queue.push({ file, sessionId });
       this.emit({ type: 'file-updated', file: stagedFile });
       this.emitProgress(session);
+      void logEvent({
+        level: 'debug',
+        area: 'indexing',
+        event: 'file.staged',
+        message: 'Staged file for indexing',
+        sessionId,
+        path: file.path,
+        data: { scope: session.scope, queuedCount: session.queuedCount },
+      });
 
       if (session.discoveredCount % 25 === 0) {
         await waitForTurn();
@@ -225,6 +243,18 @@ export class IndexingCoordinator {
 
     session.discoveryComplete = true;
     session.phase = session.queuedCount > 0 ? 'indexing' : 'finalizing';
+    void logEvent({
+      level: 'info',
+      area: 'indexing',
+      event: 'discovery.completed',
+      message: 'Completed file discovery for indexing session',
+      sessionId,
+      data: {
+        discoveredCount: session.discoveredCount,
+        queuedCount: session.queuedCount,
+        scope: session.scope,
+      },
+    });
     this.emitProgress(session);
     this.maybeEmitCompletion(session);
     this.pump();
@@ -239,6 +269,15 @@ export class IndexingCoordinator {
     session.discoveryComplete = true;
     session.phase = 'finalizing';
     session.currentPath = currentPath || error || session.currentPath;
+    void logEvent({
+      level: 'error',
+      area: 'indexing',
+      event: 'session.failed',
+      message: 'Indexing session failed',
+      sessionId,
+      path: currentPath,
+      error,
+    });
     this.emitProgress(session);
     this.maybeEmitCompletion(session);
   }
@@ -336,6 +375,15 @@ export class IndexingCoordinator {
           if (file.processingStatus === 'failed' && !session.failedPaths.has(file.path)) {
             session.failedPaths.add(file.path);
             session.failedCount = session.failedPaths.size;
+            void logEvent({
+              level: 'error',
+              area: 'indexing',
+              event: 'file.failed',
+              message: 'File indexing failed',
+              sessionId: next.sessionId,
+              path: file.path,
+              data: { failedCount: session.failedCount },
+            });
             this.emitProgress(session);
           }
           this.emit({ type: 'file-updated', file });
@@ -372,6 +420,19 @@ export class IndexingCoordinator {
 
     session.phase = 'finalizing';
     session.completionEmitted = true;
+    void logEvent({
+      level: 'info',
+      area: 'indexing',
+      event: 'session.completed',
+      message: 'Indexing session completed',
+      sessionId: session.sessionId,
+      data: {
+        scope: session.scope,
+        processedCount: session.processedCount,
+        failedCount: session.failedCount,
+        totalKnownCount: session.totalKnownCount,
+      },
+    });
     const progress = cloneProgress(session);
     this.emit({ type: 'scan-complete', progress });
   }

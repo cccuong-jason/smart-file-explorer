@@ -102,7 +102,7 @@ export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }:
         orange: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
         pink: 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400',
         red: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-        gray: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+        gray: 'bg-secondary text-muted-foreground',
         purple: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
         green: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
     };
@@ -167,10 +167,10 @@ export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }:
             onDragStart={handleDragStart}
             onClick={onClick}
             className={clsx(
-                'group relative flex flex-col p-4 cursor-pointer transition-all border rounded-2xl overflow-hidden',
+                'group relative flex flex-col p-4 cursor-pointer transition-all border-2 rounded-md overflow-hidden',
                 isSelected
-                    ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600 shadow-sm'
-                    : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md hover:z-10',
+                    ? 'bg-secondary border-border shadow-md translate-x-0.5 translate-y-0.5'
+                    : 'bg-card border-border shadow hover:bg-muted hover:translate-x-0.5 hover:translate-y-0.5 hover:z-10',
             )}
         >
             {isDragging && (
@@ -192,7 +192,7 @@ export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }:
                     onClick={(e) => { e.stopPropagation(); onToggleStar?.(e); }}
                     className={clsx(
                         'p-1.5 rounded-full transition-colors z-10',
-                        file.isStarred ? 'text-amber-400 fill-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20' : 'text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800',
+                        file.isStarred ? 'text-secondary-foreground fill-secondary-foreground bg-secondary border-2 border-border' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
                     )}
                 >
                     <Star className={clsx('h-4 w-4', file.isStarred && 'fill-current')} />
@@ -201,26 +201,26 @@ export function FileGridItem({ file, score, isSelected, onClick, onToggleStar }:
 
             {/* Icon Center */}
             <div className="flex flex-col items-center justify-center py-4 relative grow">
-                <div className={clsx('h-16 w-16 mb-3 rounded-2xl flex items-center justify-center shadow-inner', colorClass)}>
+                <div className={clsx('mb-3 flex h-16 w-16 items-center justify-center rounded shadow-inner', colorClass)}>
                     <Icon className="h-8 w-8" />
                 </div>
             </div>
 
             {/* Bottom info */}
             <div className="mt-auto space-y-1">
-                <h4 className={clsx('text-sm font-semibold truncate text-center', isSelected ? 'text-indigo-700 dark:text-indigo-400' : 'text-gray-900 dark:text-gray-100')} title={file.name}>
+                <h4 className={clsx('text-sm font-semibold truncate text-center', isSelected ? 'font-head text-foreground' : 'text-foreground')} title={file.name}>
                     {file.name}
                 </h4>
                 
-                <div className="flex items-center justify-center gap-2 text-[10px] text-gray-500 dark:text-gray-400 pt-1">
+                <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground pt-1">
                     <span className={clsx('font-bold px-1.5 py-0.5 rounded uppercase', colorClass.replace('bg-', 'bg-opacity-20 bg-'))}>
                         {config.label}
                     </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+                    <span className="w-1 h-1 rounded-full bg-border" />
                     <span>{formatSize(file.size)}</span>
                 </div>
                 {file.isLikelyLatest && (
-                    <p className="text-[11px] text-center font-medium text-indigo-700 dark:text-indigo-300 mt-2">
+                    <p className="text-[11px] text-center font-medium text-primary mt-2">
                         {t('likely_latest_version')}
                     </p>
                 )}

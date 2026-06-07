@@ -5,6 +5,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { ProgressBar } from '@/components/ui/progress-bar';
 import { HelperAlert } from '@/components/ui/helper-alert';
 import { TagInput } from '@/components/ui/tag-input';
+import { Button as RetroButton } from '@/components/retroui/Button';
 import { I18nProvider } from '@/lib/i18n';
 import { FilterSection } from '@/components/sidebar/filter-section';
 
@@ -30,13 +31,14 @@ describe('shared UI components', () => {
     expect(onPageChange).toHaveBeenNthCalledWith(3, 10);
   });
 
-  it('uses tokenized surfaces for pagination so dark mode does not keep a white pill', () => {
+  it('uses RetroUI tokenized surfaces for pagination so dark mode does not keep a white pill', () => {
     const { container } = render(
       <Pagination currentPage={2} totalPages={4} onPageChange={() => undefined} />
     );
 
-    expect(container.innerHTML).toContain('bg-[var(--ui-surface-muted)]');
-    expect(container.innerHTML).toContain('border-[var(--ui-border)]');
+    expect(container.innerHTML).toContain('bg-secondary');
+    expect(container.innerHTML).toContain('border-border');
+    expect(container.innerHTML).toContain('font-head');
   });
 
   it('renders progress details and pause action', async () => {
@@ -203,7 +205,7 @@ describe('shared UI components', () => {
     expect(screen.queryByPlaceholderText('Thêm thẻ...')).not.toBeInTheDocument();
   });
 
-  it('uses tokenized selected states for sidebar filters', () => {
+  it('uses RetroUI tokenized selected states for sidebar filters', () => {
     const { container } = render(
       <FilterSection
         title="Date modified"
@@ -217,7 +219,19 @@ describe('shared UI components', () => {
       />
     );
 
-    expect(container.innerHTML).toContain('bg-[var(--ui-primary-soft)]');
-    expect(container.innerHTML).toContain('border-[var(--ui-border)]');
+    expect(container.innerHTML).toContain('bg-secondary');
+    expect(container.innerHTML).toContain('border-border');
+    expect(container.innerHTML).toContain('font-head');
+  });
+
+  it('renders RetroUI buttons with the NeoBrutalist token contract', () => {
+    render(<RetroButton>Scan folder</RetroButton>);
+
+    const button = screen.getByRole('button', { name: 'Scan folder' });
+    expect(button).toHaveClass('font-head');
+    expect(button).toHaveClass('border-2');
+    expect(button).toHaveClass('border-black');
+    expect(button.className).toContain('bg-primary');
+    expect(button.className).toContain('hover:bg-primary-hover');
   });
 });

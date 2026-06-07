@@ -12,10 +12,14 @@ import {
 
 import { TrayActivityPill } from '@/components/tray-activity/tray-activity-pill';
 import {
+  createTrayActivityDetected,
   TRAY_ACTIVITY_EVENT,
   type TrayActivityEventPayload,
   type TrayActivityState,
+  shouldTrayActivityOwnWatchEvent,
 } from '@/lib/tray-activity/state';
+import { logEvent } from '@/lib/telemetry/logger';
+import { createAsyncUnlistenGuard } from '@/lib/tauri/async-unlisten-guard';
 
 const PILL_WIDTH = 320;
 const PILL_HEIGHT = 106;
@@ -27,6 +31,11 @@ export default function TrayActivityPage() {
 
   useEffect(() => {
     const trayWindow = getCurrentWindow();
+
+    const isMainWindowVisible = async () => {
+      const mainWindow = await WebviewWindow.getByLabel('main');
+      return await mainWindow?.isVisible().catch(() => false) ?? false;
+    };
 
     const clearHideTimer = () => {
       if (hideTimerRef.current) {
@@ -51,12 +60,26 @@ export default function TrayActivityPage() {
     const hideWindow = async () => {
       clearHideTimer();
       setActivity(null);
+      void logEvent({
+        level: 'debug',
+        area: 'tray',
+        event: 'activity.hide',
+        message: 'Hiding tray activity window',
+      });
       await trayWindow.hide().catch(() => undefined);
     };
 
     const showWindow = async (nextActivity: TrayActivityState) => {
       clearHideTimer();
       setActivity(nextActivity);
+      void logEvent({
+        level: 'info',
+        area: 'tray',
+        event: 'activity.show',
+        message: `Showing tray activity for ${nextActivity.fileName}`,
+        path: nextActivity.filePath,
+        data: { kind: nextActivity.kind, progressPercent: nextActivity.kind === 'indexing' ? nextActivity.progressPercent : 100 },
+      });
       await positionWindow().catch(() => undefined);
       await trayWindow.show().catch(() => undefined);
     };
@@ -72,36 +95,82 @@ export default function TrayActivityPage() {
       }, delay);
     };
 
-    let unlistenEvent: (() => void) | undefined;
-    let unlistenFocus: (() => void) | undefined;
-    let unlistenScale: (() => void) | undefined;
+    const unlistenGuard = createAsyncUnlistenGuard();
 
     const setup = async () => {
-      await positionWindow().catch(() => undefined);
-
-      unlistenEvent = await listen<TrayActivityEventPayload>(TRAY_ACTIVITY_EVENT, async (event) => {
-        const nextActivity = event.payload.activity;
-
-        if (!nextActivity) {
-          await hideWindow();
-          return;
-        }
-
-        await showWindow(nextActivity);
-        scheduleHideForCompletion(nextActivity);
-      });
-
-      unlistenFocus = await trayWindow.onFocusChanged(async ({ payload: focused }) => {
-        if (!focused) {
-          return;
-        }
-
-        await openMainWindow();
-      });
-
-      unlistenScale = await trayWindow.onScaleChanged(async () => {
+      try {
         await positionWindow().catch(() => undefined);
-      });
+
+        unlistenGuard.add(
+          await listen<TrayActivityEventPayload>(TRAY_ACTIVITY_EVENT, async (event) => {
+            const nextActivity = event.payload.activity;
+
+            if (!nextActivity) {
+              await hideWindow();
+              return;
+            }
+
+            await showWindow(nextActivity);
+            scheduleHideForCompletion(nextActivity);
+          })
+        );
+
+        unlistenGuard.add(
+          await listen<{ kind: string; path: string }>('sys-file-event', async (event) => {
+            const mainVisible = await isMainWindowVisible();
+            if (!shouldTrayActivityOwnWatchEvent({ isMainWindowVisible: mainVisible })) {
+              return;
+            }
+
+            const { kind, path } = event.payload;
+            if (kind === 'remove') {
+              void logEvent({
+                level: 'info',
+                area: 'tray',
+                event: 'watch.remove',
+                message: 'Received hidden-window remove event',
+                path,
+              });
+              await hideWindow();
+              return;
+            }
+
+            void logEvent({
+              level: 'info',
+              area: 'tray',
+              event: 'watch.detected',
+              message: 'Received hidden-window watched file event',
+              path,
+              data: { kind },
+            });
+            await showWindow(createTrayActivityDetected({ path, detectedAt: Date.now() }));
+          })
+        );
+
+        unlistenGuard.add(
+          await trayWindow.onFocusChanged(async ({ payload: focused }) => {
+            if (!focused) {
+              return;
+            }
+
+            await openMainWindow();
+          })
+        );
+
+        unlistenGuard.add(
+          await trayWindow.onScaleChanged(async () => {
+            await positionWindow().catch(() => undefined);
+          })
+        );
+      } catch (error) {
+        void logEvent({
+          level: 'error',
+          area: 'tray',
+          event: 'activity.listen_failed',
+          message: 'Failed to subscribe tray activity listeners',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     };
 
     const openMainWindow = async () => {
@@ -118,9 +187,7 @@ export default function TrayActivityPage() {
 
     return () => {
       clearHideTimer();
-      unlistenEvent?.();
-      unlistenFocus?.();
-      unlistenScale?.();
+      unlistenGuard.cleanup();
     };
   }, []);
 

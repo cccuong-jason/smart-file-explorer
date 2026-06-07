@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Shield, FolderOpen, Keyboard, ChevronRight, ChevronLeft, Check, Search, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { useTranslation } from '@/lib/i18n';
+import { Button } from '@/components/retroui/Button';
 
 const ONBOARDING_KEY = 'sfe_onboarded';
 
@@ -23,7 +24,7 @@ export function FirstVisitTour({ isOpen: controlledIsOpen, onClose }: Props) {
       target: '[data-tour="scan-btn"]',
       tooltipPlacement: 'right',
       icon: FolderOpen,
-      iconColor: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-200',
+      iconColor: 'bg-primary text-primary-foreground',
       title: t('tour_scan_title'),
       description: t('tour_scan_description')
     },
@@ -224,21 +225,21 @@ export function FirstVisitTour({ isOpen: controlledIsOpen, onClose }: Props) {
         <div
           className={clsx(
             "absolute transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            "bg-white dark:bg-gray-900 rounded-lg shadow-2xl overflow-hidden flex flex-col border border-white/40 dark:border-gray-800",
+            "flex flex-col overflow-hidden rounded border-2 border-border bg-card text-card-foreground shadow-md",
             StepContent.target ? "w-[340px]" : "w-[380px]",
             internalIsOpen && currentStep === 0 && "animate-in fade-in zoom-in-95 duration-500"
           )}
           style={tooltipStyle}
         >
           {/* Progress Bar inside tooltip */}
-           <div className="w-full h-1 bg-gray-100 dark:bg-gray-800 flex">
+           <div className="flex h-1 w-full bg-secondary">
             {steps.map((_, idx) => (
               <div 
                 key={idx} 
                 className={clsx(
                   "h-full flex-1 transition-all duration-500",
-                  idx <= currentStep ? "bg-indigo-500" : "bg-transparent",
-                  idx > 0 && "border-l border-white"
+                  idx <= currentStep ? "bg-primary" : "bg-transparent",
+                  idx > 0 && "border-l border-border"
                 )}
               />
             ))}
@@ -246,45 +247,45 @@ export function FirstVisitTour({ isOpen: controlledIsOpen, onClose }: Props) {
 
           {!StepContent.target && (
             // Animated Mockup Area for Global Hotkey Step
-            <div className="h-44 bg-slate-900 flex flex-col items-center justify-center relative overflow-hidden p-6 border-b border-gray-100 dark:border-gray-800">
+            <div className="relative flex h-44 flex-col items-center justify-center overflow-hidden border-b-2 border-border bg-foreground p-6">
               {/* Background Glow */}
-              <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 to-purple-500/10" />
+              <div className="absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--primary)_22%,transparent),transparent)]" />
               
               {/* Fake Desktop BG */}
               <div className="w-full h-full absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:20px_20px]" />
 
               {/* Animated Spotlight Bar */}
-              <div className="z-10 w-full max-w-[280px] h-12 bg-white/10 backdrop-blur-md rounded-xl border border-white/20 shadow-2xl flex items-center px-4 gap-3 animate-spotlight-mock">
-                <Search className="w-4 h-4 text-indigo-300" />
+              <div className="z-10 flex h-12 w-full max-w-[280px] animate-spotlight-mock items-center gap-3 rounded border-2 border-background bg-card px-4 shadow-md">
+                <Search className="h-4 w-4 text-primary" />
                 <div className="flex-1 flex gap-1 items-center">
                   <span className="text-white font-medium text-sm animate-pulse tracking-wide inline-block" style={{animationDuration: '2s'}}>
                      yearly report...
                   </span>
-                  <div className="h-4 w-0.5 bg-indigo-400 animate-pulse" />
+                  <div className="h-4 w-0.5 animate-pulse bg-primary" />
                 </div>
                 <Sparkles className="w-4 h-4 text-amber-300" />
               </div>
 
               {/* Fake Keypress Indication */}
               <div className="absolute bottom-4 flex gap-1.5 z-10" style={{ animation: 'float-up 3s ease-in-out infinite' }}>
-                <kbd className="px-2.5 py-1 bg-white/10 backdrop-blur-sm text-gray-200 rounded border border-white/20 text-[10px] font-mono shadow-sm">Ctrl</kbd>
-                <kbd className="px-2.5 py-1 bg-white/10 backdrop-blur-sm text-gray-200 rounded border border-white/20 text-[10px] font-mono shadow-sm">Shift</kbd>
-                <kbd className="px-4 py-1 bg-indigo-500/30 backdrop-blur-sm text-indigo-100 rounded border border-indigo-400/40 text-[10px] font-mono shadow-sm">Space</kbd>
+                <kbd className="rounded border-2 border-background bg-card px-2.5 py-1 font-mono text-[10px] text-foreground shadow-sm">Ctrl</kbd>
+                <kbd className="rounded border-2 border-background bg-card px-2.5 py-1 font-mono text-[10px] text-foreground shadow-sm">Shift</kbd>
+                <kbd className="rounded border-2 border-background bg-primary px-4 py-1 font-mono text-[10px] text-primary-foreground shadow-sm">Space</kbd>
               </div>
             </div>
           )}
 
           <div className="p-6">
             <div className="flex items-center gap-4 mb-4">
-              <div className={clsx("w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-inner", StepContent.iconColor)}>
+              <div className={clsx("flex h-10 w-10 shrink-0 items-center justify-center rounded border-2 border-border shadow-inner", StepContent.iconColor)}>
                 <Icon className="w-5 h-5" />
               </div>
-              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 leading-tight">
+              <h2 className="font-head text-lg font-bold leading-tight text-foreground">
                 {StepContent.title}
               </h2>
             </div>
             
-            <p className="text-gray-500 dark:text-gray-300 text-sm leading-relaxed min-h-[60px]">
+            <p className="min-h-[60px] text-sm leading-relaxed text-muted-foreground">
               {StepContent.description}
             </p>
           </div>
@@ -296,7 +297,7 @@ export function FirstVisitTour({ isOpen: controlledIsOpen, onClose }: Props) {
                   key={idx} 
                   className={clsx(
                     "h-1.5 rounded-full transition-all duration-300",
-                    idx === currentStep ? "w-6 bg-indigo-500" : "w-1.5 bg-gray-200"
+                    idx === currentStep ? "w-6 bg-primary" : "w-1.5 bg-border"
                   )}
                 />
               ))}
@@ -304,23 +305,28 @@ export function FirstVisitTour({ isOpen: controlledIsOpen, onClose }: Props) {
             
             <div className="flex items-center gap-2">
               {currentStep > 0 && (
-                <button
+                <Button
+                  type="button"
                   onClick={handlePrev}
-                  className="flex items-center justify-center gap-1 px-3 py-2 text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg font-semibold transition-all duration-200 text-sm"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 bg-card"
                 >
                   <ChevronLeft className="w-4 h-4" /> {t('tour_back')}
-                </button>
+                </Button>
               )}
-              <button
+              <Button
+                type="button"
                 onClick={handleNext}
-                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-lg shadow-md font-bold transition-all duration-200 text-sm"
+                size="sm"
+                className="gap-2 px-5 py-2.5 text-sm"
               >
                 {currentStep < steps.length - 1 ? (
                   <>{t('tour_next')} <ChevronRight className="w-4 h-4 ml-0.5" /></>
                 ) : (
                   <>{t('tour_get_started')} <Check className="w-4 h-4 ml-0.5" /></>
                 )}
-              </button>
+              </Button>
             </div>
           </div>
 

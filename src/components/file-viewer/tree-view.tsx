@@ -11,17 +11,18 @@ interface TreeViewProps {
   nodes: TreeFolderNode[];
   selectedPath: string | null;
   autoExpandPaths?: string[];
+  expandAll?: boolean;
   onSelectFile: (file: BrowserFileRecord) => void;
 }
 
-export function TreeView({ nodes, selectedPath, autoExpandPaths = [], onSelectFile }: TreeViewProps) {
+export function TreeView({ nodes, selectedPath, autoExpandPaths = [], expandAll = false, onSelectFile }: TreeViewProps) {
   const { t } = useTranslation();
   const defaultExpanded = useMemo(() => {
     const expanded = new Set<string>();
 
     const visit = (node: TreeNode) => {
       if (node.kind === 'folder') {
-        if (node.isRoot) {
+        if (node.isRoot || expandAll) {
           expanded.add(node.path);
         }
         node.children.forEach(visit);
@@ -30,9 +31,15 @@ export function TreeView({ nodes, selectedPath, autoExpandPaths = [], onSelectFi
 
     nodes.forEach(visit);
     return expanded;
-  }, [nodes]);
+  }, [expandAll, nodes]);
 
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(defaultExpanded);
+
+  useEffect(() => {
+    if (expandAll) {
+      setExpandedPaths(defaultExpanded);
+    }
+  }, [defaultExpanded, expandAll]);
 
   useEffect(() => {
     if (autoExpandPaths.length === 0) {
@@ -48,14 +55,14 @@ export function TreeView({ nodes, selectedPath, autoExpandPaths = [], onSelectFi
 
   if (nodes.length === 0) {
     return (
-      <div className="m-4 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-8 text-center">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--ui-primary-soft)] text-[var(--ui-primary)]">
+      <div className="m-4 rounded-md border-2 border-border bg-card p-8 text-center shadow-md">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded border-2 border-border bg-secondary text-foreground shadow">
           <FolderTree className="h-6 w-6" />
         </div>
-        <h3 className="mt-4 text-base font-semibold text-[var(--foreground)]">
+        <h3 className="mt-4 font-head text-base text-foreground">
           {t('tree_view_empty_title')}
         </h3>
-        <p className="mt-2 text-sm text-[var(--ui-secondary)]">
+        <p className="mt-2 text-sm text-muted-foreground">
           {t('tree_view_empty_description')}
         </p>
       </div>
@@ -120,18 +127,18 @@ function TreeNodeRow({
           type="button"
           onClick={() => onToggleFolder(node.path)}
           aria-label={t('tree_view_toggle_folder', { name: node.name })}
-          className="flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm text-[var(--foreground)] transition-colors hover:border-[var(--ui-border)] hover:bg-[var(--ui-surface)]"
+          className="flex w-full items-center gap-2 rounded border-2 border-transparent px-3 py-2 text-left text-sm text-foreground transition-colors hover:border-border hover:bg-muted"
           style={indentStyle}
         >
           {isExpanded ? (
-            <ChevronDown className="h-4 w-4 text-[var(--ui-secondary)]" />
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-[var(--ui-secondary)]" />
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
-          <FolderOpen className="h-4 w-4 text-[var(--ui-primary)]" />
+          <FolderOpen className="h-4 w-4 text-primary" />
           <span className="font-medium">{node.name}</span>
           {node.isRoot ? (
-            <span className="ml-2 rounded-full bg-[var(--ui-primary-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--ui-primary)]">
+            <span className="ml-2 rounded border border-border bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
               {t('tree_view_root_label')}
             </span>
           ) : null}
@@ -162,15 +169,15 @@ function TreeNodeRow({
     <button
       type="button"
       onClick={() => onSelectFile(node.file)}
-      className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors ${
+      className={`flex w-full items-center gap-2 rounded border-2 px-3 py-2 text-left text-sm transition-colors ${
         isSelected
-          ? 'border-[var(--ui-primary-border)] bg-[var(--ui-primary-soft)] text-[var(--ui-primary-strong)]'
-          : 'border-transparent text-[var(--foreground)] hover:border-[var(--ui-border)] hover:bg-[var(--ui-surface)]'
+          ? 'border-border bg-secondary text-foreground shadow'
+          : 'border-transparent text-foreground hover:border-border hover:bg-muted'
       }`}
       style={indentStyle}
     >
       <div className="w-4" />
-      <FileText className="h-4 w-4 text-[var(--ui-secondary)]" />
+      <FileText className="h-4 w-4 text-muted-foreground" />
       <span className="truncate">{node.name}</span>
     </button>
   );

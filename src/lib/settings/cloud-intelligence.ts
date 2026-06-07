@@ -21,6 +21,13 @@ export interface TestCloudIntelligenceConnectionInput {
   model?: string;
 }
 
+export function isCloudIntelligenceReady(
+  enabled: boolean,
+  status: Pick<CloudIntelligenceStatus, 'configured' | 'lastError'>,
+) {
+  return enabled && status.configured && !status.lastError;
+}
+
 export function getCloudIntelligenceEnabled() {
   if (typeof window === 'undefined') {
     return true;

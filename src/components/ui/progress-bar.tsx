@@ -1,6 +1,7 @@
 import React from 'react';
 import { FileText, Loader2, Pause, Play } from 'lucide-react';
 
+import { Button } from '@/components/retroui/Button';
 import type { ScanSessionPhase } from '@/lib/file-system/scan-session';
 
 interface ProgressBarProps {
@@ -56,9 +57,9 @@ export function ProgressBar({
 
   return (
     <div className="w-full space-y-2">
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 font-semibold text-indigo-600">
+          <span className="flex items-center gap-1 font-semibold text-primary">
             {isPaused ? 'Paused' : <Loader2 className="h-3 w-3 animate-spin" />}
             {isPaused ? '' : title}
           </span>
@@ -66,24 +67,24 @@ export function ProgressBar({
         <div className="flex items-center gap-3">
           <span className="font-medium">{detailCount}</span>
           {showIndexedProgress ? (
-            <span className="font-bold text-indigo-600">{percentage.toFixed(0)}%</span>
+            <span className="font-bold text-primary">{percentage.toFixed(0)}%</span>
           ) : null}
         </div>
       </div>
 
-      <div className="relative flex h-2 w-full items-center overflow-hidden rounded-full bg-gray-100">
+      <div className="relative flex h-3 w-full items-center overflow-hidden rounded border-2 border-border bg-muted">
         {showIndexedProgress ? (
           <div
-            className={`h-full bg-indigo-500 transition-all duration-300 ${isPaused ? 'opacity-50' : ''}`}
+            className={`h-full bg-primary transition-all duration-300 ${isPaused ? 'opacity-50' : ''}`}
             style={{ width: `${percentage}%` }}
           />
         ) : (
-          <div className="absolute inset-0 w-full animate-pulse bg-indigo-500/20" />
+          <div className="absolute inset-0 w-full animate-pulse bg-primary/25" />
         )}
       </div>
 
       <div className="flex items-start justify-between">
-        <div className="flex max-w-[70%] items-center gap-2 truncate font-mono text-xs text-gray-400">
+        <div className="flex max-w-[70%] items-center gap-2 truncate font-mono text-xs text-muted-foreground">
           <FileText className="h-3 w-3 shrink-0" />
           <span className="truncate" title={currentPath}>
             {currentPath || 'Waiting for files...'}
@@ -91,13 +92,15 @@ export function ProgressBar({
         </div>
 
         {onTogglePause ? (
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onTogglePause}
-            className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 transition-colors hover:text-indigo-600"
+            className="gap-1 px-2 py-0.5 text-[10px] uppercase"
           >
             {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
             {isPaused ? 'Resume' : 'Pause'}
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>

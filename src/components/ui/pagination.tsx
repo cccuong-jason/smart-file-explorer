@@ -1,6 +1,8 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo } from 'react';
 
+import { Button } from '@/components/retroui/Button';
+
 interface PaginationProps {
     currentPage: number;
     totalPages: number;
@@ -51,22 +53,24 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
 
     return (
         <div className="flex items-center justify-center gap-2">
-            <button
+            <Button
+                variant="outline"
+                size="icon"
                 disabled={currentPage === 1}
                 onClick={() => onPageChange(currentPage - 1)}
-                className="p-2 rounded-lg text-gray-400 hover:text-[var(--ui-primary)] hover:bg-[var(--ui-surface)] active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
+                className="h-9 w-9 text-foreground disabled:pointer-events-none disabled:opacity-20"
                 aria-label="Previous Page"
             >
                 <ChevronLeft className="h-4 w-4" />
-            </button>
+            </Button>
 
             <div 
                 ref={containerRef}
-                className="relative flex items-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-1 shadow-sm"
+                className="relative flex items-center rounded-md border-2 border-border bg-secondary p-1 shadow-md"
             >
                 {/* Smooth sliding highlight */}
                 <div 
-                    className="absolute h-8 rounded-lg bg-[var(--ui-primary)] shadow-lg transition-all duration-300 ease-in-out pointer-events-none z-0"
+                    className="absolute h-8 rounded bg-primary shadow transition-all duration-300 ease-in-out pointer-events-none z-0"
                     style={{
                         left: `${highlightStyle.left}px`,
                         width: `${highlightStyle.width}px`,
@@ -81,31 +85,35 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
                             ...
                         </div>
                     ) : (
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             key={page}
                             ref={el => { if(el) pageRefs.current[page] = el; }}
                             onClick={() => onPageChange(page)}
                             className={`
-                                relative z-10 w-8 h-8 rounded-lg text-xs font-bold transition-colors duration-200
+                                relative z-10 h-8 w-8 border-0 text-xs font-bold shadow-none transition-colors duration-200 hover:translate-y-0 active:translate-y-0 active:translate-x-0
                                 ${currentPage === page
-                                    ? 'text-white'
-                                    : 'text-gray-500 hover:text-[var(--ui-primary)]'}
+                                    ? 'text-primary-foreground hover:bg-transparent'
+                                    : 'text-foreground hover:bg-transparent'}
                             `}
                         >
                             {page}
-                        </button>
+                        </Button>
                     )
                 ))}
             </div>
 
-            <button
+            <Button
+                variant="outline"
+                size="icon"
                 disabled={currentPage === totalPages}
                 onClick={() => onPageChange(currentPage + 1)}
-                className="p-2 rounded-lg text-gray-400 hover:text-[var(--ui-primary)] hover:bg-[var(--ui-surface)] active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
+                className="h-9 w-9 text-foreground disabled:pointer-events-none disabled:opacity-20"
                 aria-label="Next Page"
             >
                 <ChevronRight className="h-4 w-4" />
-            </button>
+            </Button>
         </div>
     );
 }

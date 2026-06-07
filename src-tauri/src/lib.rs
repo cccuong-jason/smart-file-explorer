@@ -2,18 +2,24 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
-use std::{env, fs, io::Read};
+use std::{
+    env, fs,
+    io::{Read, Seek, SeekFrom},
+};
 use tauri::{AppHandle, Emitter, Manager, State};
 use walkdir::{DirEntry, WalkDir};
 
 const OPENROUTER_KEY_SERVICE: &str = "smart-file-explorer";
 const OPENROUTER_KEY_ACCOUNT: &str = "openrouter_api_key";
+const RECENT_FRONTEND_EVENT_LIMIT: usize = 500;
+const DIAGNOSTIC_LOG_FILE_LIMIT: usize = 5;
+const DIAGNOSTIC_LOG_TAIL_BYTES: u64 = 200_000;
 
 struct AppState {
     watch_manager: Mutex<WatchManagerState>,
@@ -21,6 +27,7 @@ struct AppState {
     next_debounce_token: Arc<AtomicU64>,
     scan_sessions: Arc<Mutex<HashMap<String, NativeScanSessionControl>>>,
     next_scan_session_id: Arc<AtomicU64>,
+    recent_frontend_events: Mutex<VecDeque<FrontendLogEvent>>,
 }
 
 struct WatchManagerState {
@@ -39,6 +46,44 @@ struct NativeScanSessionControl {
 struct NativeWatchStateSnapshot {
     watched_folders: Vec<WatchedFolderRecord>,
     active_roots: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendLogEvent {
+    id: String,
+    timestamp: String,
+    level: String,
+    area: String,
+    event: String,
+    message: String,
+    correlation_id: Option<String>,
+    session_id: Option<String>,
+    path: Option<String>,
+    data: Option<serde_json::Value>,
+    error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticSnapshot {
+    source: String,
+    app_version: String,
+    generated_at: String,
+    log_file_path: Option<String>,
+    native_log_files: Vec<DiagnosticLogFile>,
+    watched_folders: Vec<WatchedFolderRecord>,
+    active_watch_roots: Vec<String>,
+    recent_frontend_events: Vec<FrontendLogEvent>,
+    scan_sessions: Vec<ScanSessionDiagnostic>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticLogFile {
+    path: String,
+    truncated: bool,
+    content: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -481,6 +526,137 @@ fn save_watched_folder_records(
     fs::write(path, content).map_err(|error| error.to_string())
 }
 
+fn unix_timestamp_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+fn diagnostic_log_file_path(app_handle: &AppHandle) -> Option<String> {
+    app_handle
+        .path()
+        .app_log_dir()
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+fn read_diagnostic_log_tail(path: &Path) -> Result<(String, bool), String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let size = file.metadata().map_err(|error| error.to_string())?.len();
+    let truncated = size > DIAGNOSTIC_LOG_TAIL_BYTES;
+
+    if truncated {
+        file.seek(SeekFrom::Start(size - DIAGNOSTIC_LOG_TAIL_BYTES))
+            .map_err(|error| error.to_string())?;
+    }
+
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+
+    Ok((String::from_utf8_lossy(&bytes).into_owned(), truncated))
+}
+
+fn read_native_log_files(app_handle: &AppHandle) -> Vec<DiagnosticLogFile> {
+    let Ok(log_dir) = app_handle.path().app_log_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(log_dir) else {
+        return Vec::new();
+    };
+
+    let mut files = entries
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_type()
+                .map(|file_type| file_type.is_file())
+                .unwrap_or(false)
+        })
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| extension.eq_ignore_ascii_case("log"))
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    files.sort_by(|left, right| {
+        let left_modified = left
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        let right_modified = right
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        right_modified.cmp(&left_modified)
+    });
+
+    files
+        .into_iter()
+        .take(DIAGNOSTIC_LOG_FILE_LIMIT)
+        .filter_map(|entry| {
+            let path = entry.path();
+            read_diagnostic_log_tail(&path)
+                .ok()
+                .map(|(content, truncated)| DiagnosticLogFile {
+                    path: path.to_string_lossy().into_owned(),
+                    truncated,
+                    content,
+                })
+        })
+        .collect()
+}
+
+fn build_diagnostic_snapshot(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<DiagnosticSnapshot, String> {
+    let watched_folders = load_watched_folder_records(app_handle)?;
+    let active_watch_roots = state
+        .watch_manager
+        .lock()
+        .unwrap()
+        .active_roots
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let recent_frontend_events = state
+        .recent_frontend_events
+        .lock()
+        .unwrap()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let scan_sessions = state
+        .scan_sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(session_id, session)| ScanSessionDiagnostic {
+            session_id: session_id.clone(),
+            paused: session.paused,
+            cancelled: session.cancelled,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(DiagnosticSnapshot {
+        source: "native".to_string(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        generated_at: unix_timestamp_millis().to_string(),
+        log_file_path: diagnostic_log_file_path(app_handle),
+        native_log_files: read_native_log_files(app_handle),
+        watched_folders,
+        active_watch_roots,
+        recent_frontend_events,
+        scan_sessions,
+    })
+}
+
 fn normalize_watch_path(value: &str) -> String {
     let path = PathBuf::from(value.trim());
     fs::canonicalize(&path)
@@ -522,7 +698,10 @@ fn update_watched_folder_enabled(
     let normalized_path = normalize_watch_path(path);
     let mut records = load_watched_folder_records(app_handle)?;
 
-    if let Some(existing) = records.iter_mut().find(|record| record.path == normalized_path) {
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|record| record.path == normalized_path)
+    {
         existing.enabled = enabled;
         existing.status = if enabled { "watching" } else { "paused" }.to_string();
         existing.last_error = None;
@@ -565,7 +744,11 @@ fn effective_watch_roots(records: &[WatchedFolderRecord]) -> Vec<PathBuf> {
 }
 
 fn is_temporary_or_partial_download(path: &Path) -> bool {
-    let file_name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default().to_lowercase();
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
     file_name.starts_with("~$")
         || file_name.ends_with(".tmp")
         || file_name.ends_with(".temp")
@@ -760,16 +943,24 @@ fn rebuild_native_watch_roots(
 
     let previous_roots = manager.active_roots.clone();
     if let Some(watcher) = manager.watcher.as_mut() {
-
         for existing_root in previous_roots.iter() {
-            if !next_roots.iter().any(|next_root| next_root == existing_root) {
+            if !next_roots
+                .iter()
+                .any(|next_root| next_root == existing_root)
+            {
                 let _ = watcher.unwatch(existing_root);
             }
         }
 
         for next_root in next_roots.iter() {
-            if !previous_roots.iter().any(|existing_root| existing_root == next_root) {
-                log::info!("[watch] starting watcher for {}", next_root.to_string_lossy());
+            if !previous_roots
+                .iter()
+                .any(|existing_root| existing_root == next_root)
+            {
+                log::info!(
+                    "[watch] starting watcher for {}",
+                    next_root.to_string_lossy()
+                );
                 watcher
                     .watch(next_root, RecursiveMode::Recursive)
                     .map_err(|error| error.to_string())?;
@@ -807,7 +998,10 @@ fn load_cloud_config(app_handle: &AppHandle) -> Result<CloudIntelligenceConfig, 
     Ok(config)
 }
 
-fn save_cloud_config_file(app_handle: &AppHandle, config: &CloudIntelligenceConfig) -> Result<(), String> {
+fn save_cloud_config_file(
+    app_handle: &AppHandle,
+    config: &CloudIntelligenceConfig,
+) -> Result<(), String> {
     let path = cloud_config_path(app_handle)?;
     let content = serde_json::to_string_pretty(config).map_err(|error| error.to_string())?;
     fs::write(path, content).map_err(|error| error.to_string())
@@ -822,7 +1016,8 @@ fn clear_cloud_config_file(app_handle: &AppHandle) -> Result<(), String> {
 }
 
 fn keyring_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(OPENROUTER_KEY_SERVICE, OPENROUTER_KEY_ACCOUNT).map_err(|error| error.to_string())
+    keyring::Entry::new(OPENROUTER_KEY_SERVICE, OPENROUTER_KEY_ACCOUNT)
+        .map_err(|error| error.to_string())
 }
 
 fn get_user_openrouter_api_key() -> Result<Option<String>, String> {
@@ -859,7 +1054,8 @@ fn normalize_openrouter_model(value: &str) -> String {
 
 fn set_user_openrouter_api_key(value: &str) -> Result<(), String> {
     let entry = keyring_entry()?;
-    entry.set_password(&normalize_openrouter_api_key(value))
+    entry
+        .set_password(&normalize_openrouter_api_key(value))
         .map_err(|error| error.to_string())
 }
 
@@ -908,7 +1104,10 @@ fn now_timestamp_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn build_cloud_intelligence_status(app_handle: Option<&AppHandle>, last_error: Option<String>) -> Result<CloudIntelligenceStatus, String> {
+fn build_cloud_intelligence_status(
+    app_handle: Option<&AppHandle>,
+    last_error: Option<String>,
+) -> Result<CloudIntelligenceStatus, String> {
     let user_key = get_user_openrouter_api_key()?;
     let config = if let Some(app_handle) = app_handle {
         load_cloud_config(app_handle)?
@@ -921,7 +1120,8 @@ fn build_cloud_intelligence_status(app_handle: Option<&AppHandle>, last_error: O
     };
 
     load_project_env_files();
-    let has_project_key = env::var("OPENROUTER_API_KEY").is_ok() || env::var("OPEN_ROUTER_API_KEY").is_ok();
+    let has_project_key =
+        env::var("OPENROUTER_API_KEY").is_ok() || env::var("OPEN_ROUTER_API_KEY").is_ok();
     let source = if user_key.is_some() {
         "user"
     } else if has_project_key {
@@ -1087,9 +1287,7 @@ async fn request_openrouter_folder_summary(
         .map_err(|error| format!("Failed to read OpenRouter response body: {error}"))?;
     let payload: OpenRouterResponse = serde_json::from_str(&body).map_err(|error| {
         let body_preview = body.chars().take(240).collect::<String>();
-        format!(
-            "Failed to decode OpenRouter response body: {error}. Body preview: {body_preview}"
-        )
+        format!("Failed to decode OpenRouter response body: {error}. Body preview: {body_preview}")
     })?;
 
     let content = payload
@@ -1180,9 +1378,7 @@ async fn request_openrouter_connection_probe(
 
     let payload: OpenRouterResponse = serde_json::from_str(&body).map_err(|error| {
         let body_preview = body.chars().take(240).collect::<String>();
-        format!(
-            "Failed to decode OpenRouter response body: {error}. Body preview: {body_preview}"
-        )
+        format!("Failed to decode OpenRouter response body: {error}. Body preview: {body_preview}")
     })?;
 
     let content = payload
@@ -1263,6 +1459,44 @@ fn extract_document_segments(path: String) -> Result<Vec<ExtractedSegment>, Stri
 }
 
 #[tauri::command]
+fn log_frontend_event(event: FrontendLogEvent, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut events = state.recent_frontend_events.lock().unwrap();
+        events.push_back(event.clone());
+        while events.len() > RECENT_FRONTEND_EVENT_LIMIT {
+            events.pop_front();
+        }
+    }
+
+    let payload = event
+        .data
+        .as_ref()
+        .and_then(|value| serde_json::to_string(value).ok())
+        .unwrap_or_else(|| "{}".to_string());
+    let prefix = format!("[frontend:{}:{}] ", event.area, event.event);
+    let detail = format!(
+        "{}{} correlation_id={:?} session_id={:?} path={:?} data={} error={:?}",
+        prefix,
+        event.message,
+        event.correlation_id,
+        event.session_id,
+        event.path,
+        payload,
+        event.error
+    );
+
+    match event.level.as_str() {
+        "debug" => log::debug!("{detail}"),
+        "info" => log::info!("{detail}"),
+        "warn" => log::warn!("{detail}"),
+        "error" => log::error!("{detail}"),
+        _ => log::info!("{detail}"),
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn log_frontend_message(
     level: String,
     message: String,
@@ -1281,6 +1515,35 @@ fn log_frontend_message(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+fn get_diagnostic_snapshot(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<DiagnosticSnapshot, String> {
+    build_diagnostic_snapshot(&app_handle, &state)
+}
+
+#[tauri::command]
+fn export_diagnostic_bundle(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let snapshot = build_diagnostic_snapshot(&app_handle, &state)?;
+    let diagnostics_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())?
+        .join("diagnostics");
+    fs::create_dir_all(&diagnostics_dir).map_err(|error| error.to_string())?;
+    let path = diagnostics_dir.join(format!(
+        "smart-file-explorer-diagnostics-{}.json",
+        unix_timestamp_millis()
+    ));
+    let content = serde_json::to_string_pretty(&snapshot).map_err(|error| error.to_string())?;
+    fs::write(&path, content).map_err(|error| error.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -1334,7 +1597,8 @@ async fn test_cloud_intelligence_connection(
         .clone()
         .map(|value| normalize_openrouter_model(&value))
         .filter(|value| !value.is_empty());
-    let result = request_openrouter_connection_probe(Some(&app_handle), api_key, model.clone()).await;
+    let result =
+        request_openrouter_connection_probe(Some(&app_handle), api_key, model.clone()).await;
 
     match result {
         Ok(_) => {
@@ -1363,7 +1627,9 @@ async fn test_cloud_intelligence_connection(
 }
 
 #[tauri::command]
-fn clear_cloud_intelligence_config(app_handle: AppHandle) -> Result<CloudIntelligenceStatus, String> {
+fn clear_cloud_intelligence_config(
+    app_handle: AppHandle,
+) -> Result<CloudIntelligenceStatus, String> {
     log::info!("Clearing cloud intelligence config");
     clear_user_openrouter_api_key()?;
     clear_cloud_config_file(&app_handle)?;
@@ -1412,10 +1678,11 @@ fn start_scan_session(
     }
 
     rebuild_native_watch_roots(&app_handle, &state)?;
-    state.scan_sessions.lock().unwrap().insert(
-        session_id.clone(),
-        NativeScanSessionControl::default(),
-    );
+    state
+        .scan_sessions
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), NativeScanSessionControl::default());
 
     log::info!(
         "[scan-session] start session_id={} roots={:?}",
@@ -1582,7 +1849,10 @@ fn start_scan_session(
                 );
             }
             Err(error) if error == "cancelled" => {
-                log::info!("[scan-session] cancelled session_id={}", session_id_for_thread);
+                log::info!(
+                    "[scan-session] cancelled session_id={}",
+                    session_id_for_thread
+                );
                 emit_scan_session_event(
                     &handle,
                     NativeScanSessionEvent {
@@ -1638,10 +1908,7 @@ fn start_scan_session(
             }
         }
 
-        let _ = rebuild_native_watch_roots(
-            &handle,
-            &handle.state::<AppState>(),
-        );
+        let _ = rebuild_native_watch_roots(&handle, &handle.state::<AppState>());
         scan_sessions.lock().unwrap().remove(&session_id_for_thread);
     });
 
@@ -2135,6 +2402,7 @@ pub fn run() {
                 next_debounce_token: Arc::new(AtomicU64::new(0)),
                 scan_sessions: Arc::new(Mutex::new(HashMap::new())),
                 next_scan_session_id: Arc::new(AtomicU64::new(0)),
+                recent_frontend_events: Mutex::new(VecDeque::new()),
             });
 
             use tauri::Manager;
@@ -2201,7 +2469,10 @@ pub fn run() {
             get_file_metadata,
             extract_text_content,
             extract_document_segments,
+            log_frontend_event,
             log_frontend_message,
+            get_diagnostic_snapshot,
+            export_diagnostic_bundle,
             generate_folder_intelligence_summary,
             get_cloud_intelligence_status,
             save_cloud_intelligence_config,

@@ -24,7 +24,13 @@ export function shouldShowTrayActivityForWatchEvent(options: {
   isNewWatchedAddition: boolean;
   isMainWindowVisible: boolean;
 }) {
-  return options.isNewWatchedAddition && !options.isMainWindowVisible;
+  return options.isNewWatchedAddition;
+}
+
+export function shouldTrayActivityOwnWatchEvent(options: {
+  isMainWindowVisible: boolean;
+}) {
+  return !options.isMainWindowVisible;
 }
 
 export function createTrayActivityIndexing(options: {
@@ -43,6 +49,25 @@ export function createTrayActivityIndexing(options: {
     fileName: getFileName(options.path),
     watchLabel: options.watchLabel,
     progressPercent: Math.round((numerator / denominator) * 100),
+    detectedAt: options.detectedAt,
+  };
+}
+
+export function createTrayActivityDetected(options: {
+  path: string;
+  detectedAt: number;
+  watchLabel?: string;
+}): TrayActivityState {
+  const normalizedPath = options.path
+    .replace(/^\\\\\?\\/, '')
+    .replace(/^\\\?\\/, '');
+
+  return {
+    kind: 'indexing',
+    filePath: normalizedPath,
+    fileName: getFileName(normalizedPath),
+    watchLabel: options.watchLabel,
+    progressPercent: 5,
     detectedAt: options.detectedAt,
   };
 }

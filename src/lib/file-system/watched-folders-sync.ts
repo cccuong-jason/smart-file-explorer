@@ -40,7 +40,10 @@ export async function syncNativeWatchedFolders(
 }
 
 function normalizePath(path: string) {
-  return path.replace(/\\/g, '/');
+  return path
+    .replace(/^\\\\\?\\/, '')
+    .replace(/^\\\?\\/, '')
+    .replace(/\\/g, '/');
 }
 
 function comparePaths(a: string, b: string) {
@@ -110,6 +113,37 @@ export function shouldSyncNativeWatchedFolders(
   };
 
   return JSON.stringify(localSnapshot) !== JSON.stringify(nativeSnapshot);
+}
+
+export function mergeWatchedFolderSnapshots(
+  localFolders: WatchedFolderRecord[],
+  nativeSnapshot: NativeWatchStateSnapshot | null
+): WatchedFolderRecord[] {
+  const merged = new Map<string, WatchedFolderRecord>();
+
+  for (const folder of localFolders) {
+    const normalizedPath = normalizePath(folder.path);
+    merged.set(normalizedPath.toLowerCase(), {
+      ...folder,
+      path: normalizedPath,
+    });
+  }
+
+  for (const folder of nativeSnapshot?.watchedFolders ?? []) {
+    const normalizedPath = normalizePath(folder.path);
+    const key = normalizedPath.toLowerCase();
+    if (merged.has(key)) {
+      continue;
+    }
+
+    merged.set(key, {
+      path: normalizedPath,
+      enabled: folder.enabled,
+      status: folder.status as WatchedFolderRecord['status'],
+    });
+  }
+
+  return Array.from(merged.values()).sort((a, b) => comparePaths(a.path, b.path));
 }
 
 function isCommandNotFoundError(error: unknown) {

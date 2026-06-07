@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildNativeWatchSyncSnapshot,
   inspectNativeWatchedFolders,
+  mergeWatchedFolderSnapshots,
   shouldSyncNativeWatchedFolders,
   syncNativeWatchedFolders,
 } from '@/lib/file-system/watched-folders-sync';
@@ -87,6 +88,71 @@ describe('watched folder sync', () => {
       activeRoots: ['C:/Users/jason/Documents/Acme'],
     });
     expect(shouldSyncNativeWatchedFolders(localFolders, nativeSnapshot)).toBe(false);
+  });
+
+  it('normalizes native Windows device prefixes before comparing watch snapshots', () => {
+    const localFolders = [
+      {
+        path: 'C:/Users/jason/Downloads',
+        enabled: true,
+        status: 'watching' as const,
+      },
+    ];
+    const nativeSnapshot = {
+      watchedFolders: [
+        {
+          path: '\\\\?\\C:\\Users\\jason\\Downloads',
+          enabled: true,
+          status: 'watching',
+        },
+      ],
+      activeRoots: ['\\\\?\\C:\\Users\\jason\\Downloads'],
+    };
+
+    expect(shouldSyncNativeWatchedFolders(localFolders, nativeSnapshot)).toBe(false);
+  });
+
+  it('merges native-only watched roots into the frontend snapshot', () => {
+    expect(
+      mergeWatchedFolderSnapshots(
+        [
+          {
+            path: 'C:/Users/jason/Downloads',
+            enabled: true,
+            status: 'watching' as const,
+          },
+        ],
+        {
+          watchedFolders: [
+            {
+              path: '\\\\?\\C:\\Users\\jason\\Downloads',
+              enabled: true,
+              status: 'watching',
+            },
+            {
+              path: '\\\\?\\D:\\Learning_And_Work\\Projects\\Freelance_Proj\\be-my-love',
+              enabled: true,
+              status: 'watching',
+            },
+          ],
+          activeRoots: [
+            '\\\\?\\C:\\Users\\jason\\Downloads',
+            '\\\\?\\D:\\Learning_And_Work\\Projects\\Freelance_Proj\\be-my-love',
+          ],
+        }
+      )
+    ).toEqual([
+      {
+        path: 'C:/Users/jason/Downloads',
+        enabled: true,
+        status: 'watching',
+      },
+      {
+        path: 'D:/Learning_And_Work/Projects/Freelance_Proj/be-my-love',
+        enabled: true,
+        status: 'watching',
+      },
+    ]);
   });
 
   it('requires native resync when local watched folders materially differ from native state', () => {

@@ -103,4 +103,19 @@ describe('tree view component', () => {
 
     expect(screen.getByRole('button', { name: /proposal-final\.docx/i })).toBeInTheDocument();
   });
+
+  it('can render an entire workspace tree with every folder expanded', () => {
+    render(
+      <I18nProvider>
+        <TreeView
+          nodes={tree}
+          selectedPath={null}
+          expandAll
+          onSelectFile={() => undefined}
+        />
+      </I18nProvider>
+    );
+
+    expect(screen.getByRole('button', { name: /proposal-final\.docx/i })).toBeInTheDocument();
+  });
 });

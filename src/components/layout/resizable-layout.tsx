@@ -53,10 +53,10 @@ export function ResizableLayout({ sidebar, content, preview }: ResizableLayoutPr
     }, [resize, stopResizing]);
 
     return (
-        <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-gray-50 dark:bg-gray-950 select-none">
+        <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-background select-none">
             {/* Sidebar */}
             <aside
-                className="shrink-0 bg-white dark:bg-gray-900 overflow-y-auto flex flex-col border-r border-transparent dark:border-gray-800"
+                className="shrink-0 bg-card overflow-y-auto flex flex-col border-r-2 border-border"
                 style={{ width: sidebarWidth }}
             >
                 {sidebar}
@@ -64,24 +64,24 @@ export function ResizableLayout({ sidebar, content, preview }: ResizableLayoutPr
 
             {/* Resizer 1 */}
             <div
-                className="w-1 cursor-col-resize hover:bg-indigo-400 active:bg-indigo-600 transition-colors bg-gray-200 dark:bg-gray-800 z-10"
+                className="w-1 cursor-col-resize bg-border transition-colors hover:bg-primary active:bg-primary z-10"
                 onMouseDown={startResizingSidebar}
             />
 
             {/* Main Content */}
-            <main className="flex-1 min-w-0 overflow-y-auto bg-white dark:bg-gray-900 relative">
+            <main className="flex-1 min-w-0 overflow-y-auto bg-background relative">
                 {content}
             </main>
 
             {/* Resizer 2 */}
             <div
-                className="w-1 cursor-col-resize hover:bg-indigo-400 active:bg-indigo-600 transition-colors bg-gray-200 dark:bg-gray-800 z-10 hidden xl:block"
+                className="w-1 cursor-col-resize bg-border transition-colors hover:bg-primary active:bg-primary z-10 hidden xl:block"
                 onMouseDown={startResizingPreview}
             />
 
             {/* Preview */}
             <aside
-                className="shrink-0 bg-gray-50 dark:bg-gray-950 overflow-y-auto hidden xl:block border-l border-gray-100 dark:border-gray-800"
+                className="shrink-0 bg-card overflow-y-auto hidden xl:block border-l-2 border-border"
                 style={{ width: previewWidth }}
             >
                 {preview}
