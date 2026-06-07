@@ -10,6 +10,10 @@ const TRUSTED_WORKSPACE_ROOT = getTrustedWorkspaceRoot(ROOT);
 const RUN_ID = `${Date.now()}-${process.pid}`;
 const TEMP_ROOT = path.join(TRUSTED_WORKSPACE_ROOT, `tauri-bundle-${RUN_ID}`, 'project');
 const TEMP_TARGET_DIR = path.join(TEMP_ROOT, 'src-tauri', 'target');
+const DEFAULT_BUNDLE_ARTIFACT_DIR = path.join(ROOT, 'artifacts', 'desktop', process.platform);
+const BUNDLE_ARTIFACT_DIR = process.env.SMART_FILE_EXPLORER_BUNDLE_ARTIFACT_DIR
+  ? path.resolve(process.env.SMART_FILE_EXPLORER_BUNDLE_ARTIFACT_DIR)
+  : DEFAULT_BUNDLE_ARTIFACT_DIR;
 const tauriCommand = process.platform === 'win32'
   ? path.join(ROOT, 'node_modules', '.bin', 'tauri.cmd')
   : path.join(ROOT, 'node_modules', '.bin', 'tauri');
@@ -55,6 +59,15 @@ async function copyProject(source, target) {
 
 async function copyNodeModules(target) {
   await fs.cp(path.join(ROOT, 'node_modules'), target, {
+    recursive: true,
+    force: true,
+  });
+}
+
+async function copyBundleArtifacts(source, target) {
+  await fs.rm(target, { recursive: true, force: true });
+  await fs.mkdir(target, { recursive: true });
+  await fs.cp(source, target, {
     recursive: true,
     force: true,
   });
@@ -117,7 +130,9 @@ async function main() {
   });
 
   await waitForExit(child);
-  console.log(`Bundle artifacts are available under ${path.join(TEMP_TARGET_DIR, 'release', 'bundle')}`);
+  const bundleDir = path.join(TEMP_TARGET_DIR, 'release', 'bundle');
+  await copyBundleArtifacts(bundleDir, BUNDLE_ARTIFACT_DIR);
+  console.log(`Bundle artifacts are available under ${BUNDLE_ARTIFACT_DIR}`);
 }
 
 main().catch((error) => {

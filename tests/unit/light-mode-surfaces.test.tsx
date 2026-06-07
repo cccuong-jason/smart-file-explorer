@@ -5,24 +5,15 @@ import { describe, expect, it } from 'vitest';
 import { QuickLookModal } from '@/components/file-viewer/quick-look-modal';
 import { StarterScanModal } from '@/components/onboarding/starter-scan-modal';
 import { SettingsModal } from '@/components/settings/settings-modal';
-import { ToastProvider, useToast } from '@/components/ui/toast';
+import { Toaster } from '@/components/retroui/Sonner';
 import { CopyPathInstructionModal } from '@/components/ui/copy-path-modal';
 import { I18nProvider } from '@/lib/i18n';
-
-function ToastHarness() {
-  const { toast } = useToast();
-
-  return (
-    <button type="button" onClick={() => toast('Saved', 'success')}>
-      Trigger toast
-    </button>
-  );
-}
+import { toast } from 'sonner';
 
 describe('light mode surfaces', () => {
   it('renders settings, onboarding, and preview overlays with tokenized light-mode surfaces', async () => {
     const { container } = render(
-      <ToastProvider>
+      <>
         <I18nProvider>
           <SettingsModal
             isOpen
@@ -84,7 +75,8 @@ describe('light mode surfaces', () => {
             path="C:/Users/jason/Documents/proposal.doc"
           />
         </I18nProvider>
-      </ToastProvider>
+        <Toaster />
+      </>
     );
 
     const markup = container.innerHTML;
@@ -96,16 +88,17 @@ describe('light mode surfaces', () => {
   it('renders toast cards with tokenized light-mode surfaces', async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <ToastProvider>
-        <ToastHarness />
-      </ToastProvider>
+      <>
+        <button type="button" onClick={() => toast.success('Saved')}>Trigger toast</button>
+        <Toaster />
+      </>
     );
 
     await user.click(screen.getByRole('button', { name: 'Trigger toast' }));
 
     await waitFor(() => {
-      expect(container.innerHTML).toContain('bg-[var(--ui-surface)]');
-      expect(container.innerHTML).toContain('border-[var(--ui-border)]');
+      expect(container.innerHTML).toContain('bg-background');
+      expect(container.innerHTML).toContain('border-border');
     });
   });
 });

@@ -1,5 +1,6 @@
-import { X, Plus } from 'lucide-react';
+import { X, Plus } from '@/components/icons';
 import { useState, KeyboardEvent } from 'react';
+import { Input } from '@/components/retroui/Input';
 import { useTranslation } from '@/lib/i18n';
 
 interface TagInputProps {
@@ -40,7 +41,7 @@ export function TagInput({ tags, onAddTag, onRemoveTag }: TagInputProps) {
 
             {isInputVisible ? (
                 <div className="flex items-center">
-                    <input
+                    <Input
                         type="text"
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
@@ -50,7 +51,7 @@ export function TagInput({ tags, onAddTag, onRemoveTag }: TagInputProps) {
                         }}
                         autoFocus
                         placeholder={`${t('add_tag')}...`}
-                        className="w-24 rounded border-2 border-border bg-card px-2 py-1 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                        className="w-24 bg-card px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary"
                     />
                 </div>
             ) : (

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowRight, Clock3, FolderKanban, ScanSearch, Star, Files } from 'lucide-react';
+import { ArrowRight, Clock3, FolderKanban, ScanSearch, Star, Files } from '@/components/icons';
 import { useTranslation } from '@/lib/i18n';
 import type { FolderInsight } from '@/lib/folder-intelligence/workspaces';
 import { Button } from '@/components/retroui/Button';

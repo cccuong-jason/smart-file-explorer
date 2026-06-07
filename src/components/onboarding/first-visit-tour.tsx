@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Shield, FolderOpen, Keyboard, ChevronRight, ChevronLeft, Check, Search, Sparkles } from 'lucide-react';
+import { Shield, FolderOpen, Keyboard, ChevronRight, ChevronLeft, Check, Search, Sparkles } from '@/components/icons';
 import clsx from 'clsx';
 import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/retroui/Button';

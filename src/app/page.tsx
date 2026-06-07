@@ -35,24 +35,26 @@ import {
 } from '@/lib/file-system/db';
 import { SearchInput, type SearchRequest } from '@/components/search/search-input';
 import { Button } from '@/components/retroui/Button';
+import { Empty } from '@/components/retroui/Empty';
+import { Select } from '@/components/retroui/Select';
+import { Tabs } from '@/components/retroui/Tabs';
 import { ResizableLayout } from '@/components/layout/resizable-layout';
 import { FileListItem } from '@/components/file-viewer/file-list-item';
 import { ProgressBar } from '@/components/ui/progress-bar';
 import { FilePreviewPanel } from '@/components/file-viewer/file-preview-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { FilterSection } from '@/components/sidebar/filter-section';
-import { FolderOpen, FileText, FileCode, Image as ImageIcon, ArrowUpDown, Star, HelpCircle, Globe2, Moon, Sun, Archive, Video } from 'lucide-react';
+import { FolderOpen, FileText, FileCode, Image as ImageIcon, ArrowUpDown, Star, HelpCircle, Globe2, Archive, Video } from '@/components/icons';
 
-import { useToast } from '@/components/ui/toast';
+import { toast as sonnerToast } from 'sonner';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { QuickLookModal } from '@/components/file-viewer/quick-look-modal';
-import { Settings, LayoutGrid, List, FolderTree as FolderTreeIcon } from 'lucide-react';
+import { Settings, LayoutGrid, List, FolderTree as FolderTreeIcon } from '@/components/icons';
 import { FirstVisitTour } from '@/components/onboarding/first-visit-tour';
 import { StarterScanModal } from '@/components/onboarding/starter-scan-modal';
 import { WorkInboxPanel } from '@/components/folder-intelligence/work-inbox-panel';
 import { WorkspaceDrillInModal } from '@/components/folder-intelligence/workspace-drill-in-modal';
 import { useTranslation } from '@/lib/i18n';
-import { useTheme } from '@/lib/theme-provider';
 import { FileGridItem } from '@/components/file-viewer/file-grid-item';
 import { extractUniqueTags, filterFiles, paginateFiles, sortFiles } from '@/lib/file-browser/utils';
 import { buildTreeView, getTreeAutoExpandedPaths } from '@/lib/file-browser/tree-view';
@@ -171,9 +173,20 @@ function isFileInWorkspace(filePath: string, workspacePath: string) {
 }
 
 export default function Home() {
-  const { toast } = useToast();
+  const toast = useCallback((
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning' = 'info',
+    options?: { actionLabel?: string; onAction?: () => void },
+  ) => {
+    const toastOptions = options?.actionLabel && options.onAction
+      ? { action: { label: options.actionLabel, onClick: options.onAction } }
+      : undefined;
+    if (type === 'success') sonnerToast.success(message, toastOptions);
+    else if (type === 'error') sonnerToast.error(message, toastOptions);
+    else if (type === 'warning') sonnerToast.warning(message, toastOptions);
+    else sonnerToast.info(message, toastOptions);
+  }, []);
   const { t, language, setLanguage } = useTranslation();
-  const { theme, setTheme } = useTheme();
   const indexingCoordinator = useMemo(() => getIndexingCoordinator(), []);
 
   // --- State ---
@@ -1034,6 +1047,18 @@ export default function Home() {
     try {
       const nextStatus = await saveCloudIntelligenceConfig(input);
       setCloudStatus(nextStatus);
+      failedFolderInsightAiRef.current.clear();
+      pendingFolderInsightAiRef.current.clear();
+      setFolderInsightAiCache((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(next)) {
+          if (next[key]?.status !== 'ready') {
+            delete next[key];
+          }
+        }
+        return next;
+      });
+      toast(nextStatus.lastError || t('privacy_cloud_save_success'), nextStatus.lastError ? 'error' : 'success');
       return nextStatus;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1177,10 +1202,6 @@ export default function Home() {
 
   const handleToggleSort = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-  };
-
-  const handleToggleTheme = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
   };
 
   const handleToggleLanguage = () => {
@@ -1765,152 +1786,166 @@ export default function Home() {
                 <Globe2 className="w-4 h-4" />
                 <span>{language === 'vi' ? t('language_vi') : t('language_en')}</span>
               </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleToggleTheme}
-                title={t('toggle_theme')}
-                className="h-10 w-10 shrink-0"
-              >
-                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </Button>
             </div>
 
-            <div className="mt-4 flex items-center justify-between">
-              <div className="text-xs text-muted-foreground">
-                {t('showing_files', { count: visibleFileCount, total: filteredAndSortedFiles.length })}
-                {searchQuery && <span className="ml-1">{t('for_query', { query: searchQuery })}</span>}
-              </div>
+          </div>
 
-              <div className="flex items-center gap-3">
-                <div className="flex items-center rounded-md border-2 border-border bg-muted p-0.5 shadow">
+          <Tabs defaultValue="work" className="flex min-h-0 flex-1 flex-col bg-card">
+            <Tabs.List className="border-b-2 border-border bg-secondary px-6 py-3">
+              <Tabs.Trigger value="work">{t('work_inbox_title')}</Tabs.Trigger>
+              <Tabs.Trigger value="files">{t('files_directory')}</Tabs.Trigger>
+            </Tabs.List>
+
+            <Tabs.Content value="work" className="mt-0 min-h-0 flex-1 overflow-y-auto bg-card">
+              {!searchQuery.trim() && workInboxItems.length > 0 ? (
+                <WorkInboxPanel
+                  items={workInboxItems}
+                  onOpenFile={(file) => {
+                    const matched = files.find((item) => item.path === file.path) ?? file;
+                    setSelectedFile(matched);
+                  }}
+                  onOpenWorkspace={(workspaceId) => setSelectedWorkspaceId(workspaceId)}
+                  onDismissItem={handleDismissWorkInboxItem}
+                  onToggleItemPin={handleTogglePinnedInboxItem}
+                  hiddenItemCount={hiddenWorkInboxItemCount}
+                  onResetDismissedItems={hiddenWorkInboxItemCount > 0 ? handleResetDismissedWorkInboxItems : undefined}
+                />
+              ) : (
+                <Empty className="m-6">
+                  <Empty.Content>
+                    <FolderOpen className="h-10 w-10 text-muted-foreground" />
+                    <Empty.Title>{t('work_inbox_title')}</Empty.Title>
+                    <Empty.Description>{t('work_inbox_description')}</Empty.Description>
+                  </Empty.Content>
+                </Empty>
+              )}
+            </Tabs.Content>
+
+            <Tabs.Content value="files" className="mt-0 flex min-h-0 flex-1 flex-col bg-card">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-border bg-card px-6 py-4">
+                <div className="text-xs text-muted-foreground">
+                  {t('showing_files', { count: visibleFileCount, total: filteredAndSortedFiles.length })}
+                  {searchQuery && <span className="ml-1">{t('for_query', { query: searchQuery })}</span>}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center rounded-md border-2 border-border bg-muted p-0.5 shadow">
+                    <Button
+                      variant={viewMode === 'tree' ? 'default' : 'ghost'}
+                      size="icon"
+                      onClick={() => setViewMode('tree')}
+                      className="h-8 w-8 border-0 shadow-none hover:translate-y-0 active:translate-x-0 active:translate-y-0"
+                      title={t('tree_view')}
+                    >
+                      <FolderTreeIcon className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                      size="icon"
+                      onClick={() => setViewMode('grid')}
+                      className="h-8 w-8 border-0 shadow-none hover:translate-y-0 active:translate-x-0 active:translate-y-0"
+                      title={t('grid_view')}
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant={viewMode === 'list' ? 'default' : 'ghost'}
+                      size="icon"
+                      onClick={() => setViewMode('list')}
+                      className="h-8 w-8 border-0 shadow-none hover:translate-y-0 active:translate-x-0 active:translate-y-0"
+                      title={t('list_view')}
+                    >
+                      <List className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <div className="h-5 w-0.5 bg-border"></div>
+                  <Select value={sortBy} onValueChange={(value) => setSortBy(value as any)}>
+                    <Select.Trigger className="h-8 min-w-32 bg-card px-2 py-1.5 text-xs font-semibold">
+                      <Select.Value />
+                    </Select.Trigger>
+                    <Select.Content>
+                      <Select.Item value="date">{t('sort_date')}</Select.Item>
+                      <Select.Item value="size">{t('sort_size')}</Select.Item>
+                      <Select.Item value="name">{t('sort_name')}</Select.Item>
+                      <Select.Item value="relevance">{t('sort_relevance')}</Select.Item>
+                    </Select.Content>
+                  </Select>
                   <Button
-                    variant={viewMode === 'tree' ? 'default' : 'ghost'}
+                    variant="outline"
                     size="icon"
-                    onClick={() => setViewMode('tree')}
-                    className="h-8 w-8 border-0 shadow-none hover:translate-y-0 active:translate-x-0 active:translate-y-0"
-                    title={t('tree_view')}
+                    onClick={handleToggleSort}
+                    className="h-8 w-8"
+                    title={sortOrder === 'asc' ? t('sort_ascending') : t('sort_descending')}
                   >
-                    <FolderTreeIcon className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                    size="icon"
-                    onClick={() => setViewMode('grid')}
-                    className="h-8 w-8 border-0 shadow-none hover:translate-y-0 active:translate-x-0 active:translate-y-0"
-                    title={t('grid_view')}
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant={viewMode === 'list' ? 'default' : 'ghost'}
-                    size="icon"
-                    onClick={() => setViewMode('list')}
-                    className="h-8 w-8 border-0 shadow-none hover:translate-y-0 active:translate-x-0 active:translate-y-0"
-                    title={t('list_view')}
-                  >
-                    <List className="w-3.5 h-3.5" />
+                    <ArrowUpDown className="w-3.5 h-3.5" />
                   </Button>
                 </div>
-                <div className="h-5 w-0.5 bg-border"></div>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="cursor-pointer rounded border-2 border-border bg-card px-2 py-1.5 text-xs font-semibold text-foreground shadow focus:outline-none focus:ring-2 focus:ring-ring/40"
-                >
-                  <option value="date">{t('sort_date')}</option>
-                  <option value="size">{t('sort_size')}</option>
-                  <option value="name">{t('sort_name')}</option>
-                  <option value="relevance">{t('sort_relevance')}</option>
-                </select>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleToggleSort}
-                  className="h-8 w-8"
-                  title={sortOrder === 'asc' ? t('sort_ascending') : t('sort_descending')}
-                >
-                  <ArrowUpDown className="w-3.5 h-3.5" />
-                </Button>
               </div>
-            </div>
-          </div>
 
-          {!searchQuery.trim() && workInboxItems.length > 0 && (
-            <WorkInboxPanel
-              items={workInboxItems}
-              onOpenFile={(file) => {
-                const matched = files.find((item) => item.path === file.path) ?? file;
-                setSelectedFile(matched);
-              }}
-              onOpenWorkspace={(workspaceId) => setSelectedWorkspaceId(workspaceId)}
-              onDismissItem={handleDismissWorkInboxItem}
-              onToggleItemPin={handleTogglePinnedInboxItem}
-              hiddenItemCount={hiddenWorkInboxItemCount}
-              onResetDismissedItems={hiddenWorkInboxItemCount > 0 ? handleResetDismissedWorkInboxItems : undefined}
-            />
-          )}
-
-          {/* File List */}
-          <div ref={scrollContainerRef} className="relative flex-1 overflow-y-auto bg-card scroll-smooth">
-            {isTreeMode ? (
-              <TreeView
-                nodes={treeViewNodes}
-                selectedPath={selectedFile?.path ?? null}
-                autoExpandPaths={treeAutoExpandedPaths}
-                expandAll
-                onSelectFile={(file) => setSelectedFile(file)}
-              />
-            ) : paginatedFiles.length > 0 ? (
-              <div
-                key={currentPage}
-                className={viewMode === 'grid' 
-                  ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4 animate-fade-in-slide-up"
-                  : "divide-y divide-border animate-fade-in-slide-up"}
-              >
-                {paginatedFiles.map((file, idx) => (
-                  viewMode === 'grid' ? (
-                    <FileGridItem
-                      key={file.path || idx}
-                      file={file}
-                      score={file.score}
-                      isSelected={selectedFile?.path === file.path}
-                      onClick={() => setSelectedFile(file)}
-                      onToggleStar={(e) => handleToggleStar(e, file.path)}
-                    />
-                  ) : (
-                    <FileListItem
-                      key={file.path || idx}
-                      file={file}
-                      score={file.score}
-                      isSelected={selectedFile?.path === file.path}
-                      onClick={() => setSelectedFile(file)}
-                      onToggleStar={(e) => handleToggleStar(e, file.path)}
-                    />
-                  )
-                ))}
+              {/* File List */}
+              <div ref={scrollContainerRef} className="relative flex-1 overflow-y-auto bg-card scroll-smooth">
+                {isTreeMode ? (
+                  <TreeView
+                    nodes={treeViewNodes}
+                    selectedPath={selectedFile?.path ?? null}
+                    autoExpandPaths={treeAutoExpandedPaths}
+                    expandAll
+                    onSelectFile={(file) => setSelectedFile(file)}
+                  />
+                ) : paginatedFiles.length > 0 ? (
+                  <div
+                    key={currentPage}
+                    className={viewMode === 'grid'
+                      ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4 animate-fade-in-slide-up"
+                      : "divide-y divide-border animate-fade-in-slide-up"}
+                  >
+                    {paginatedFiles.map((file, idx) => (
+                      viewMode === 'grid' ? (
+                        <FileGridItem
+                          key={file.path || idx}
+                          file={file}
+                          score={file.score}
+                          isSelected={selectedFile?.path === file.path}
+                          onClick={() => setSelectedFile(file)}
+                          onToggleStar={(e) => handleToggleStar(e, file.path)}
+                        />
+                      ) : (
+                        <FileListItem
+                          key={file.path || idx}
+                          file={file}
+                          score={file.score}
+                          isSelected={selectedFile?.path === file.path}
+                          onClick={() => setSelectedFile(file)}
+                          onToggleStar={(e) => handleToggleStar(e, file.path)}
+                        />
+                      )
+                    ))}
+                  </div>
+                ) : (
+                  <Empty className="m-6">
+                    <Empty.Content>
+                      <FolderOpen className="h-12 w-12 text-muted-foreground" />
+                      <Empty.Title>{t('no_files_match')}</Empty.Title>
+                    </Empty.Content>
+                  </Empty>
+                )}
               </div>
-            ) : (
-              <div className="flex h-64 flex-col items-center justify-center text-muted-foreground">
-                <FolderOpen className="mb-3 h-12 w-12 text-muted-foreground" />
-                <p>{t('no_files_match')}</p>
-              </div>
-            )}
-          </div>
 
-          {/* Footer Pagination */}
-          {!isTreeMode ? (
-            <div className="border-t-2 border-border bg-secondary p-4">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-              />
-            </div>
-          ) : null}
+              {/* Footer Pagination */}
+              {!isTreeMode ? (
+                <div className="border-t-2 border-border bg-secondary p-4">
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                  />
+                </div>
+              ) : null}
+            </Tabs.Content>
+          </Tabs>
         </div>
       }
-      preview={<FilePreviewPanel file={selectedFile} onTagsChange={handleTagsChange} onSelectFile={setSelectedFile} />}
+      preview={<FilePreviewPanel file={selectedFile} onTagsChange={handleTagsChange} onSelectFile={setSelectedFile} isScanning={isScanning} />}
     />
     </>
   );

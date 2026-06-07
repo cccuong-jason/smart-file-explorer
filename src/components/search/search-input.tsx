@@ -1,5 +1,7 @@
-import { Search, Loader2 } from 'lucide-react';
+import { Search } from '@/components/icons';
 import { useState, useEffect, useRef } from 'react';
+import { Input } from '@/components/retroui/Input';
+import { Loader } from '@/components/retroui/Loader';
 import { useTranslation } from '@/lib/i18n';
 
 export interface SearchRequest {
@@ -83,7 +85,7 @@ export function SearchInput({ onSearch, isSearching }: SearchInputProps) {
         <form onSubmit={handleSubmit} className="relative w-full max-w-2xl mx-auto z-50">
             <div className="relative" data-tour="search-bar">
                 <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" />
-                <input
+                <Input
                     type="search"
                     value={query}
                     onChange={(e) => {
@@ -93,11 +95,11 @@ export function SearchInput({ onSearch, isSearching }: SearchInputProps) {
                     onFocus={() => setShowHistory(true)}
                     onBlur={() => setTimeout(() => setShowHistory(false), 200)}
                     placeholder={t('search_input_placeholder')}
-                    className="w-full rounded border-2 border-border bg-card py-4 pl-12 pr-14 text-lg text-foreground shadow-sm transition-all placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="bg-card py-4 pl-12 pr-14 text-lg text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary"
                 />
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">
                     {isSearching ? (
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <Loader size="sm" aria-label="Searching" />
                     ) : (
                         <kbd className="hidden rounded border-2 border-border bg-secondary px-2 py-1 font-head text-xs font-semibold text-foreground sm:inline-block">
                             {t('search_submit_hint')}

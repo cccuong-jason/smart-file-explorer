@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { I18nProvider } from '@/lib/i18n';
-import { ToastProvider } from '@/components/ui/toast';
+import { Toaster } from '@/components/retroui/Sonner';
 import {
   exportDiagnosticBundle,
   getDiagnosticSnapshot,
@@ -70,7 +70,7 @@ describe('SettingsModal cloud intelligence', () => {
     const onCloudIntelligenceEnabledChange = vi.fn();
 
     render(
-      <ToastProvider>
+      <>
         <I18nProvider>
           <SettingsModal
             isOpen
@@ -91,7 +91,8 @@ describe('SettingsModal cloud intelligence', () => {
             onClearCloudConfig={vi.fn()}
           />
         </I18nProvider>
-      </ToastProvider>
+      <Toaster />
+      </>
     );
 
     await user.click(screen.getByRole('button', { name: /cloud intelligence/i }));
@@ -109,7 +110,7 @@ describe('SettingsModal cloud intelligence', () => {
     const onTestCloudConnection = vi.fn().mockRejectedValueOnce(new Error('Connection failed'));
 
     render(
-      <ToastProvider>
+      <>
         <I18nProvider>
           <SettingsModal
             isOpen
@@ -130,7 +131,8 @@ describe('SettingsModal cloud intelligence', () => {
             onClearCloudConfig={vi.fn()}
           />
         </I18nProvider>
-      </ToastProvider>
+      <Toaster />
+      </>
     );
 
     await user.click(screen.getByRole('button', { name: /cloud intelligence/i }));
@@ -152,7 +154,7 @@ describe('SettingsModal cloud intelligence', () => {
     });
 
     render(
-      <ToastProvider>
+      <>
         <I18nProvider>
           <SettingsModal
             isOpen
@@ -173,7 +175,8 @@ describe('SettingsModal cloud intelligence', () => {
             onClearCloudConfig={vi.fn()}
           />
         </I18nProvider>
-      </ToastProvider>
+      <Toaster />
+      </>
     );
 
     await user.click(screen.getByRole('button', { name: /cloud intelligence/i }));
@@ -188,6 +191,55 @@ describe('SettingsModal cloud intelligence', () => {
     });
   });
 
+  it('announces saved cloud keys and updates the visible connection status', async () => {
+    localStorage.setItem('i18n_lang', 'en');
+    const user = userEvent.setup();
+    const onSaveCloudConfig = vi.fn().mockResolvedValue({
+      configured: true,
+      source: 'user',
+      model: 'qwen/qwen3.6-plus',
+    });
+
+    render(
+      <>
+        <I18nProvider>
+          <SettingsModal
+            isOpen
+            onClose={vi.fn()}
+            onClearIndex={vi.fn()}
+            cloudIntelligenceEnabled
+            onCloudIntelligenceEnabledChange={vi.fn()}
+            cloudStatus={{
+              configured: false,
+              source: 'none',
+              model: 'qwen/qwen3.6-plus',
+            }}
+            watchedFolders={watchedFolders}
+            onToggleWatchedFolder={vi.fn()}
+            onRemoveWatchedFolder={vi.fn()}
+            onSaveCloudConfig={onSaveCloudConfig}
+            onTestCloudConnection={vi.fn()}
+            onClearCloudConfig={vi.fn()}
+          />
+        </I18nProvider>
+        <Toaster />
+      </>
+    );
+
+    await user.click(screen.getByRole('button', { name: /cloud intelligence/i }));
+    await user.type(screen.getByLabelText(/OpenRouter API key/i), 'sk-or-test-key');
+    await user.click(screen.getByRole('button', { name: /save key/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Cloud key saved successfully/i);
+      expect(screen.getByText(/^Key saved$/i)).toBeInTheDocument();
+    });
+    expect(onSaveCloudConfig).toHaveBeenCalledWith({
+      apiKey: 'sk-or-test-key',
+      model: 'qwen/qwen3.6-plus',
+    });
+  });
+
   it('lists watched folders and lets the user disable or remove them', async () => {
     localStorage.setItem('i18n_lang', 'en');
     const user = userEvent.setup();
@@ -195,7 +247,7 @@ describe('SettingsModal cloud intelligence', () => {
     const onRemoveWatchedFolder = vi.fn();
 
     render(
-      <ToastProvider>
+      <>
         <I18nProvider>
           <SettingsModal
             isOpen
@@ -216,7 +268,8 @@ describe('SettingsModal cloud intelligence', () => {
             onClearCloudConfig={vi.fn()}
           />
         </I18nProvider>
-      </ToastProvider>
+      <Toaster />
+      </>
     );
 
     await user.click(screen.getByRole('button', { name: /privacy/i }));
@@ -236,7 +289,7 @@ describe('SettingsModal cloud intelligence', () => {
     const user = userEvent.setup();
 
     render(
-      <ToastProvider>
+      <>
         <I18nProvider>
           <SettingsModal
             isOpen
@@ -257,7 +310,8 @@ describe('SettingsModal cloud intelligence', () => {
             onClearCloudConfig={vi.fn()}
           />
         </I18nProvider>
-      </ToastProvider>
+      <Toaster />
+      </>
     );
 
     await user.click(screen.getByRole('button', { name: /diagnostics/i }));

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -96,11 +96,10 @@ function PinnedCarouselHarness() {
 }
 
 describe('WorkInboxPanel', () => {
-  it('uses carousel navigation to keep the inbox compact', async () => {
+  it('uses RetroUI carousel navigation and dashboard insights to keep the inbox compact', async () => {
     localStorage.setItem('i18n_lang', 'en');
-    const user = userEvent.setup();
 
-    render(
+    const { container } = render(
       <I18nProvider>
         <WorkInboxPanel
           items={items}
@@ -112,12 +111,13 @@ describe('WorkInboxPanel', () => {
       </I18nProvider>
     );
 
+    expect(container.querySelector('[data-slot="carousel"]')).toBeInTheDocument();
     expect(screen.getByText(/Open proposal-final\.docx/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Check recent updates/i)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /next inbox items/i }));
-
     expect(screen.getByText(/Check recent updates/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /next inbox items/i })).toBeInTheDocument();
+    expect(screen.getByText(/Attention mix/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Open \/ Continue/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Review load/i)).toBeInTheDocument();
   });
 
   it('shows a compact kind label and supporting evidence for each item', () => {
@@ -135,7 +135,7 @@ describe('WorkInboxPanel', () => {
       </I18nProvider>
     );
 
-    expect(screen.getByText('Open now')).toBeInTheDocument();
+    expect(screen.getAllByText('Open now').length).toBeGreaterThan(0);
     expect(screen.getByText('Opened recently')).toBeInTheDocument();
     expect(screen.getByText('Likely latest version')).toBeInTheDocument();
   });
@@ -195,8 +195,9 @@ describe('WorkInboxPanel', () => {
 
     render(<PinnedCarouselHarness />);
 
-    await user.click(screen.getByRole('button', { name: /next inbox items/i }));
-    await user.click(screen.getAllByRole('button', { name: /pin item/i })[1]);
+    const recentCard = screen.getByText(/Check recent updates/i).closest('article');
+    expect(recentCard).not.toBeNull();
+    await user.click(within(recentCard as HTMLElement).getByRole('button', { name: /pin item/i }));
 
     const pinnedCard = screen.getByText(/Check recent updates/i).closest('article');
     expect(pinnedCard).toHaveClass('animate-pin-confirm');
@@ -218,7 +219,7 @@ describe('WorkInboxPanel', () => {
       </I18nProvider>
     );
 
-    expect(screen.getByText('Mở ngay')).toBeInTheDocument();
+    expect(screen.getAllByText('Mở ngay').length).toBeGreaterThan(0);
     expect(screen.getByText('Xung đột phiên bản')).toBeInTheDocument();
     expect(screen.getByText(/Mở proposal-final\.docx/i)).toBeInTheDocument();
     expect(screen.getByText('Mở bản mới nhất')).toBeInTheDocument();
@@ -227,7 +228,7 @@ describe('WorkInboxPanel', () => {
     expect(screen.queryByText('Open proposal-final.docx')).not.toBeInTheDocument();
   });
 
-  it('adds contrast color only to the inbox icons and chips', () => {
+  it('uses RetroUI token badges instead of old colored pill badges', () => {
     localStorage.setItem('i18n_lang', 'en');
 
     const { container } = render(
@@ -242,8 +243,7 @@ describe('WorkInboxPanel', () => {
       </I18nProvider>
     );
 
-    expect(container.innerHTML).toMatch(/(?:text|bg)-cyan-/);
-    expect(container.innerHTML).toMatch(/(?:text|bg)-amber-/);
+    expect(container.innerHTML).not.toMatch(/rounded-full|(?:text|bg)-cyan-|(?:text|bg)-amber-/);
     expect(container.querySelector('article')?.className).toContain('bg-card');
   });
 

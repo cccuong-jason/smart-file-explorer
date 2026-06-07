@@ -1,7 +1,9 @@
 import React from 'react';
-import { FileText, Loader2, Pause, Play } from 'lucide-react';
+import { FileText, Pause, Play } from '@/components/icons';
 
 import { Button } from '@/components/retroui/Button';
+import { Loader } from '@/components/retroui/Loader';
+import { Progress } from '@/components/retroui/Progress';
 import type { ScanSessionPhase } from '@/lib/file-system/scan-session';
 
 interface ProgressBarProps {
@@ -60,7 +62,7 @@ export function ProgressBar({
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1 font-semibold text-primary">
-            {isPaused ? 'Paused' : <Loader2 className="h-3 w-3 animate-spin" />}
+            {isPaused ? 'Paused' : <Loader size="sm" aria-label="Scanning" className="scale-75" />}
             {isPaused ? '' : title}
           </span>
         </div>
@@ -74,10 +76,7 @@ export function ProgressBar({
 
       <div className="relative flex h-3 w-full items-center overflow-hidden rounded border-2 border-border bg-muted">
         {showIndexedProgress ? (
-          <div
-            className={`h-full bg-primary transition-all duration-300 ${isPaused ? 'opacity-50' : ''}`}
-            style={{ width: `${percentage}%` }}
-          />
+          <Progress value={percentage} className={`h-full border-0 bg-transparent ${isPaused ? 'opacity-50' : ''}`} />
         ) : (
           <div className="absolute inset-0 w-full animate-pulse bg-primary/25" />
         )}

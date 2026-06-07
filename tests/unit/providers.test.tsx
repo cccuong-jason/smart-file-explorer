@@ -97,18 +97,18 @@ describe('providers', () => {
       </ThemeProvider>
     );
 
-    expect(screen.getAllByText('system')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('light')[0]).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'dark' }));
 
-    expect(screen.getAllByText('dark')[0]).toBeInTheDocument();
-    expect(localStorage.getItem('theme_mode')).toBe('dark');
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(screen.getAllByText('light')[0]).toBeInTheDocument();
+    expect(localStorage.getItem('theme_mode')).toBe('light');
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
-  it('restores persisted theme, supports transitions, and reacts to system changes', async () => {
+  it('forces the light RetroUI theme even when dark or system was persisted', async () => {
     let changeListener: (() => void) | undefined;
-    let matches = false;
+    let matches = true;
     const addEventListener = vi.fn((event: string, listener: () => void) => {
       if (event === 'change') {
         changeListener = listener;
@@ -129,7 +129,7 @@ describe('providers', () => {
       dispatchEvent: vi.fn(),
     }));
 
-    localStorage.setItem('theme_mode', 'light');
+    localStorage.setItem('theme_mode', 'dark');
     const user = userEvent.setup();
 
     const { unmount } = render(
@@ -142,12 +142,12 @@ describe('providers', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(false);
 
     await user.click(screen.getByRole('button', { name: 'system' }));
-    expect(localStorage.getItem('theme_mode')).toBe('system');
+    expect(localStorage.getItem('theme_mode')).toBe('light');
     expect(addEventListener).toHaveBeenCalled();
 
     matches = true;
     changeListener?.();
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
 
     unmount();
     expect(removeEventListener).toHaveBeenCalled();

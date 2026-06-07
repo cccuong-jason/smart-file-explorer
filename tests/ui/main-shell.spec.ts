@@ -11,28 +11,20 @@ test('shows Vietnamese by default with inline toolbar controls on the main UI', 
 
   await expect(page.getByPlaceholder('Tìm kiếm tệp theo tên hoặc nội dung...')).toBeVisible();
   await expect(page.getByRole('button', { name: 'VI', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Chuyển giao diện' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Chuyển giao diện' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Mở Cài đặt' })).toBeVisible();
-  await expect(page.getByText('Đang hiển thị 0 trong số 0 tệp')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Hộp thư công việc', selected: true })).toBeVisible();
+  await expect(page.getByText('Mở ứng dụng và thấy ngay tài liệu nào cần bạn xử lý lúc này.')).toBeVisible();
 });
 
-test('toggles language and theme directly from the main toolbar', async ({ page }) => {
+test('toggles language directly from the main toolbar and keeps light mode', async ({ page }) => {
   await page.goto('/');
 
   await page.getByRole('button', { name: 'VI', exact: true }).click();
   await expect(page.getByPlaceholder('Search files by name or content...')).toBeVisible();
   await expect(page.getByRole('button', { name: 'EN', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open Settings' })).toBeVisible();
-
-  await page.getByRole('button', { name: 'Toggle theme' }).click();
-  await expect.poll(async () => {
-    return page.evaluate(() => ({
-      theme: window.localStorage.getItem('theme_mode'),
-      dark: document.documentElement.classList.contains('dark'),
-    }));
-  }).toEqual({ theme: 'dark', dark: true });
-
-  await page.getByRole('button', { name: 'Toggle theme' }).click();
+  await expect(page.getByRole('button', { name: 'Toggle theme' })).toHaveCount(0);
   await expect.poll(async () => {
     return page.evaluate(() => ({
       theme: window.localStorage.getItem('theme_mode'),

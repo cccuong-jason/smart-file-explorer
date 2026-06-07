@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
+const LIGHT_THEME: ThemeMode = 'light';
 
 interface ThemeContextType {
   theme: ThemeMode;
@@ -12,13 +13,11 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeMode>('system');
+  const [theme, setThemeState] = useState<ThemeMode>(LIGHT_THEME);
 
   useEffect(() => {
-    const saved = localStorage.getItem('theme_mode') as ThemeMode;
-    if (saved && ['light', 'dark', 'system'].includes(saved)) {
-      setThemeState(saved);
-    }
+    localStorage.setItem('theme_mode', LIGHT_THEME);
+    setThemeState(LIGHT_THEME);
   }, []);
 
   useEffect(() => {
@@ -26,18 +25,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     
     const applyTheme = () => {
-      let isDark = false;
-      if (theme === 'dark') {
-        isDark = true;
-      } else if (theme === 'system') {
-        isDark = mediaQuery.matches;
-      }
-      
-      if (isDark) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
+      root.classList.remove('dark');
     };
 
     applyTheme();
@@ -53,8 +41,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   const setTheme = (newTheme: ThemeMode) => {
-    setThemeState(newTheme);
-    localStorage.setItem('theme_mode', newTheme);
+    setThemeState(LIGHT_THEME);
+    localStorage.setItem('theme_mode', LIGHT_THEME);
   };
 
   return (

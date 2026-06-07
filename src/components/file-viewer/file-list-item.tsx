@@ -1,6 +1,6 @@
 
 import { useState, useCallback } from 'react';
-import { FileText, FileCode, FileJson, FileType, Star, Image as ImageIcon, Music, Video, Archive } from 'lucide-react';
+import { FileText, FileCode, FileJson, FileType, Star, Image as ImageIcon, Music, Video, Archive } from '@/components/icons';
 import { clsx } from 'clsx';
 import { invoke, Channel } from '@tauri-apps/api/core';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowRight, ChevronDown, ChevronUp, Clock3, FileStack, FolderKanban, FolderTree, Pin, ScanSearch, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronUp, Clock3, FileStack, FolderKanban, FolderTree, Pin, ScanSearch, X } from '@/components/icons';
 import { useTranslation } from '@/lib/i18n';
 import type { FolderInsight } from '@/lib/folder-intelligence/workspaces';
 import { getWorkspaceOpenNowItemId } from '@/lib/work-inbox/items';

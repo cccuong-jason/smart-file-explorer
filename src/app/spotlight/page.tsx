@@ -3,7 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { Search, FileText, FileCode, X, Loader2, ArrowUpDown } from 'lucide-react';
+import { Search, FileText, FileCode, X, ArrowUpDown } from '@/components/icons';
+import { Empty } from '@/components/retroui/Empty';
+import { Input } from '@/components/retroui/Input';
+import { Loader } from '@/components/retroui/Loader';
 import { searchFiles } from '@/lib/search/engine';
 import clsx from 'clsx';
 import { useTranslation } from '@/lib/i18n';
@@ -109,13 +112,13 @@ export default function SpotlightPage() {
         {/* ─── Search Bar ─── */}
         <div className="flex items-center gap-3 border-b-2 border-border bg-card px-4 py-3.5">
           {isLoading
-            ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
+            ? <Loader size="sm" aria-label="Searching" />
             : <Search className="h-5 w-5 shrink-0 text-primary" />
           }
-          <input
+          <Input
             ref={inputRef}
             type="text"
-            className="flex-1 bg-transparent text-[17px] font-medium text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="flex-1 border-0 bg-transparent px-0 py-0 text-[17px] font-medium text-foreground shadow-none placeholder:text-muted-foreground focus:outline-none"
             placeholder={t('spotlight_placeholder')}
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
@@ -199,9 +202,14 @@ export default function SpotlightPage() {
 
         {/* ─── No Results ─── */}
         {showNoResults && (
-          <div className="px-4 py-5 text-center text-sm text-muted-foreground">
-            {t('spotlight_no_results')} <span className="font-medium text-foreground">"{query}"</span>
-          </div>
+          <Empty className="m-3 px-4 py-5 text-sm text-muted-foreground">
+            <Empty.Content>
+              <Empty.Title className="text-base">{t('spotlight_no_results')}</Empty.Title>
+              <Empty.Description>
+                <span className="font-medium text-foreground">"{query}"</span>
+              </Empty.Description>
+            </Empty.Content>
+          </Empty>
         )}
       </div>
     </div>

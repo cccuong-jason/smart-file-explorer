@@ -1,7 +1,7 @@
-import { FileText, Calendar, HardDrive, ExternalLink, Tag, Link2, Copy, FileCode, FileJson, FileType, Image as ImageIcon } from 'lucide-react';
-import { useToast } from '@/components/ui/toast';
+import { FileText, Calendar, HardDrive, ExternalLink, Tag, Link2, Copy, FileCode, FileJson, FileType, Image as ImageIcon } from '@/components/icons';
 import { TagInput } from '@/components/ui/tag-input';
 import { Button } from '@/components/retroui/Button';
+import { toast as sonnerToast } from 'sonner';
 import { addFileTag, removeFileTag } from '@/lib/file-system/db';
 import { findRelatedFiles } from '@/lib/search/engine';
 import { useState, useEffect } from 'react';
@@ -20,6 +20,7 @@ interface FilePreviewPanelProps {
     file: any | null;
     onTagsChange?: (path: string, newTags: string[]) => void;
     onSelectFile?: (file: any) => void;
+    isScanning?: boolean;
 }
 
 const FILE_TYPE_CONFIG: Record<string, { icon: any, color: string, label: string }> = {
@@ -44,8 +45,16 @@ const FILE_TYPE_CONFIG: Record<string, { icon: any, color: string, label: string
     unknown: { icon: FileText, color: 'text-muted-foreground bg-secondary', label: 'FILE' }
 };
 
-export function FilePreviewPanel({ file, onTagsChange, onSelectFile }: FilePreviewPanelProps) {
-    const { toast } = useToast();
+export function FilePreviewPanel({ file, onTagsChange, onSelectFile, isScanning = false }: FilePreviewPanelProps) {
+    const toast = (
+        message: string,
+        type: 'success' | 'error' | 'info' | 'warning' = 'info',
+    ) => {
+        if (type === 'success') sonnerToast.success(message);
+        else if (type === 'error') sonnerToast.error(message);
+        else if (type === 'warning') sonnerToast.warning(message);
+        else sonnerToast.info(message);
+    };
     const { t, language } = useTranslation();
     const [relatedFiles, setRelatedFiles] = useState<{ file: any; score: number }[]>([]);
     const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
@@ -392,10 +401,15 @@ export function FilePreviewPanel({ file, onTagsChange, onSelectFile }: FilePrevi
                                 {file.content.slice(0, 2000)}
                                 {file.content.length > 2000 && <span className="mt-2 block text-muted-foreground italic">{t('preview_truncated')}</span>}
                             </pre>
-                        ) : file.indexingStage && file.indexingStage !== 'failed' ? (
+                        ) : file.indexingStage && file.indexingStage !== 'failed' && isScanning ? (
                             <div className="flex min-h-[180px] flex-col items-center justify-center rounded border-2 border-dashed border-border bg-card px-4 text-center text-sm text-foreground">
                                 <p className="font-medium">{t('preview_still_analyzing_title')}</p>
                                 <p className="mt-2 max-w-xs text-xs leading-relaxed">{t('preview_still_analyzing_description')}</p>
+                            </div>
+                        ) : file.indexingStage && file.indexingStage !== 'failed' ? (
+                            <div className="flex min-h-[180px] flex-col items-center justify-center rounded border-2 border-dashed border-border bg-card px-4 text-center text-sm text-foreground">
+                                <p className="font-medium">{t('preview_not_ready_title')}</p>
+                                <p className="mt-2 max-w-xs text-xs leading-relaxed">{t('preview_not_ready_description')}</p>
                             </div>
                         ) : (
                             <div className="flex h-32 flex-col items-center justify-center text-sm text-muted-foreground italic">

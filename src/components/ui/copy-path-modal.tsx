@@ -1,4 +1,4 @@
-import { X, Copy, Terminal } from 'lucide-react';
+import { X, Copy, Terminal } from '@/components/icons';
 import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/retroui/Button';
 

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight } from '@/components/icons';
 import { useState } from 'react';
 
 export interface FilterOption {

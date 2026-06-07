@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileText, FileCode, FileJson, FileType, Image as ImageIcon, ExternalLink, X, HardDrive, Calendar } from 'lucide-react';
+import { FileText, FileCode, FileJson, FileType, Image as ImageIcon, ExternalLink, X, HardDrive, Calendar } from '@/components/icons';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/retroui/Button';
 import { useTranslation } from '@/lib/i18n';
