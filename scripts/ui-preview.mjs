@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const DIST_INDEX = path.join(ROOT, 'dist', 'index.html');
+const PORT = process.env.PORT || '4301';
 
 function waitForExit(child) {
   return new Promise((resolve, reject) => {
@@ -42,7 +43,7 @@ async function main() {
     stdio: 'inherit',
     env: {
       ...process.env,
-      PORT: '3001',
+      PORT,
     },
   });
 

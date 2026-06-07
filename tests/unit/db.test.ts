@@ -9,7 +9,9 @@ import {
   getOcrCandidateCount,
   getWatchedFolders,
   getWorkspaceAiSummary,
+  getAllVisualChunks,
   getFileChunks,
+  getVisualChunks,
   getFile,
   removeWatchedFolder,
   removeFileTag,
@@ -19,6 +21,7 @@ import {
   storeWorkspaceAiSummary,
   storeFile,
   storeFileChunks,
+  storeVisualChunks,
   toggleFileStar,
   addFileTag,
   deleteFile,
@@ -58,6 +61,19 @@ const sampleChunks = [
     index: 1,
     text: 'Final scope and timeline',
     embedding: [0.7, 0.3, 0],
+  },
+];
+
+const sampleVisualChunks = [
+  {
+    id: `${sampleFile.path}::visual::0`,
+    filePath: sampleFile.path,
+    kind: 'image' as const,
+    sourceLabel: 'Image content',
+    embedding: [0.2, 0.7, 0.1],
+    ocrText: 'Dashboard screenshot with revenue chart',
+    ocrConfidence: 88,
+    createdAt: 123456,
   },
 ];
 
@@ -132,6 +148,42 @@ describe('file database operations', () => {
     await storeFileChunks(sampleFile.path, [sampleChunks[0]]);
 
     await expect(getFileChunks(sampleFile.path)).resolves.toEqual([sampleChunks[0]]);
+  });
+
+  it('stores and replaces visual chunks for a file', async () => {
+    await storeVisualChunks(sampleFile.path, sampleVisualChunks);
+    await expect(getVisualChunks(sampleFile.path)).resolves.toEqual(sampleVisualChunks);
+    await expect(getAllVisualChunks()).resolves.toEqual(sampleVisualChunks);
+
+    await storeVisualChunks(sampleFile.path, [
+      {
+        ...sampleVisualChunks[0],
+        id: `${sampleFile.path}::visual::1`,
+        sourceLabel: 'Updated image content',
+      },
+    ]);
+
+    await expect(getVisualChunks(sampleFile.path)).resolves.toEqual([
+      expect.objectContaining({
+        id: `${sampleFile.path}::visual::1`,
+        sourceLabel: 'Updated image content',
+      }),
+    ]);
+  });
+
+  it('clears visual chunks when files are cleared or deleted', async () => {
+    await storeFile({
+      ...sampleFile,
+      visualIndexingStage: 'completed',
+    });
+    await storeVisualChunks(sampleFile.path, sampleVisualChunks);
+
+    await deleteFile(sampleFile.path);
+    await expect(getVisualChunks(sampleFile.path)).resolves.toEqual([]);
+
+    await storeVisualChunks(sampleFile.path, sampleVisualChunks);
+    await clearDatabase();
+    await expect(getAllVisualChunks()).resolves.toEqual([]);
   });
 
   it('counts files that are waiting on OCR', async () => {

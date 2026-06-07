@@ -1,17 +1,32 @@
 
-import { getAllChunks, getAllFiles } from '../file-system/db';
+import { getAllChunks, getAllFiles, getAllVisualChunks } from '../file-system/db';
 import { generateEmbedding } from './vector-engine';
-import { collectChunkSignals, findRelatedFileMatches, rankSearchResults } from './core';
+import { generateVisualTextEmbedding } from './visual-vector-engine';
+import { collectChunkSignals, collectVisualSignals, findRelatedFileMatches, rankSearchResults } from './core';
 
 // Search Logic
 async function searchFiles(query: string, useSemantic = true) {
-    const [allFiles, allChunks] = await Promise.all([getAllFiles(), getAllChunks()]);
+    const [allFiles, allChunks, allVisualChunks] = await Promise.all([getAllFiles(), getAllChunks(), getAllVisualChunks()]);
     if (!useSemantic) {
         return rankSearchResults({ query, files: allFiles, semanticEnabled: false });
     }
 
     try {
         const queryEmbedding = await generateEmbedding(query);
+        let visualSignals;
+
+        try {
+            const visualQueryEmbedding = await generateVisualTextEmbedding(query);
+            visualSignals = collectVisualSignals({
+                query,
+                visualChunks: allVisualChunks,
+                queryEmbedding: visualQueryEmbedding,
+                semanticEnabled: true,
+            });
+        } catch (visualError) {
+            console.warn('Worker: Visual embedding generation failed', visualError);
+        }
+
         const chunkSignals = collectChunkSignals({
             query,
             chunks: allChunks,
@@ -23,6 +38,7 @@ async function searchFiles(query: string, useSemantic = true) {
             files: allFiles,
             queryEmbedding,
             chunkSignals,
+            visualSignals,
             semanticEnabled: true,
         });
     } catch (error) {

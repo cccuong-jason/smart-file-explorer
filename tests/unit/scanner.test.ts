@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { processFile, type TauriFileMetadata } from '@/lib/file-system/scanner';
-import { getFile, storeFile, storeFileChunks } from '@/lib/file-system/db';
+import { getFile, storeFile, storeFileChunks, storeVisualChunks } from '@/lib/file-system/db';
 import { generateEmbeddingInBackground } from '@/lib/search/embedding-engine';
+import { generateVisualEmbeddingInBackground } from '@/lib/search/visual-embedding-engine';
 import { runLocalOcr } from '@/lib/ocr/ocr-engine';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -9,10 +10,15 @@ vi.mock('@/lib/file-system/db', () => ({
   getFile: vi.fn(),
   storeFile: vi.fn(),
   storeFileChunks: vi.fn(),
+  storeVisualChunks: vi.fn(),
 }));
 
 vi.mock('@/lib/search/embedding-engine', () => ({
   generateEmbeddingInBackground: vi.fn(),
+}));
+
+vi.mock('@/lib/search/visual-embedding-engine', () => ({
+  generateVisualEmbeddingInBackground: vi.fn(),
 }));
 
 vi.mock('@/lib/ocr/ocr-engine', () => ({
@@ -26,7 +32,9 @@ vi.mock('@tauri-apps/api/core', () => ({
 const getFileMock = vi.mocked(getFile);
 const storeFileMock = vi.mocked(storeFile);
 const storeFileChunksMock = vi.mocked(storeFileChunks);
+const storeVisualChunksMock = vi.mocked(storeVisualChunks);
 const generateEmbeddingMock = vi.mocked(generateEmbeddingInBackground);
+const generateVisualEmbeddingMock = vi.mocked(generateVisualEmbeddingInBackground);
 const runLocalOcrMock = vi.mocked(runLocalOcr);
 const invokeMock = vi.mocked(invoke);
 
@@ -43,12 +51,15 @@ describe('scanner native extraction', () => {
     getFileMock.mockReset();
     storeFileMock.mockReset();
     storeFileChunksMock.mockReset();
+    storeVisualChunksMock.mockReset();
     generateEmbeddingMock.mockReset();
+    generateVisualEmbeddingMock.mockReset();
     runLocalOcrMock.mockReset();
     invokeMock.mockReset();
 
     getFileMock.mockResolvedValue(undefined);
     generateEmbeddingMock.mockResolvedValue([1, 0, 0]);
+    generateVisualEmbeddingMock.mockResolvedValue([0, 1, 0]);
     runLocalOcrMock.mockResolvedValue([]);
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'extract_document_segments') {
@@ -147,6 +158,78 @@ describe('scanner native extraction', () => {
         content: 'Scanned invoice total due',
         ocrStatus: 'completed',
         indexingStage: 'semantic',
+      })
+    );
+  });
+
+  it('stores OCR text chunks and a visual embedding for image files', async () => {
+    invokeMock.mockResolvedValueOnce([]);
+    runLocalOcrMock.mockResolvedValueOnce([
+      {
+        text: 'Q4 revenue dashboard',
+        sourceLabel: 'OCR Image',
+        confidence: 91,
+      },
+    ]);
+
+    await processFile({
+      ...metadata,
+      path: '/images/dashboard.png',
+      name: 'dashboard.png',
+      type: 'image/png',
+    });
+
+    expect(generateVisualEmbeddingMock).toHaveBeenCalledWith('/images/dashboard.png', 'dashboard.png');
+    expect(storeVisualChunksMock).toHaveBeenCalledWith(
+      '/images/dashboard.png',
+      expect.arrayContaining([
+        expect.objectContaining({
+          filePath: '/images/dashboard.png',
+          kind: 'image',
+          sourceLabel: 'Image content',
+          embedding: [0, 1, 0],
+          ocrText: 'Q4 revenue dashboard',
+          ocrConfidence: 91,
+        }),
+      ])
+    );
+    expect(storeFileMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        path: '/images/dashboard.png',
+        ocrStatus: 'completed',
+        visualIndexingStage: 'completed',
+      })
+    );
+  });
+
+  it('stores a visual embedding for image files even when OCR finds no text', async () => {
+    invokeMock.mockResolvedValueOnce([]);
+    runLocalOcrMock.mockResolvedValueOnce([]);
+
+    await processFile({
+      ...metadata,
+      path: '/images/photo.jpg',
+      name: 'photo.jpg',
+      type: 'image/jpeg',
+    });
+
+    expect(storeVisualChunksMock).toHaveBeenCalledWith(
+      '/images/photo.jpg',
+      expect.arrayContaining([
+        expect.objectContaining({
+          filePath: '/images/photo.jpg',
+          kind: 'image',
+          embedding: [0, 1, 0],
+          ocrText: undefined,
+        }),
+      ])
+    );
+    expect(storeFileMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        path: '/images/photo.jpg',
+        ocrStatus: 'recommended',
+        visualIndexingStage: 'completed',
+        indexingStage: 'metadata',
       })
     );
   });
