@@ -1,14 +1,21 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Keyboard, Check, X, AlertCircle, Database, Download, Trash2, ShieldCheck, Settings as SettingsIcon, Cloud, Shield, KeyRound } from 'lucide-react';
+import { Keyboard, Check, X, AlertCircle, Database, Download, Trash2, ShieldCheck, Settings as SettingsIcon, Cloud, Shield, KeyRound, Activity, RefreshCw, ClipboardList } from 'lucide-react';
 import { unregister, register } from '@tauri-apps/plugin-global-shortcut';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { exportIndexToJSON, clearDatabase, getAllFiles, getOcrCandidateCount } from '@/lib/file-system/db';
+import type { WatchedFolderRecord } from '@/lib/file-system/db';
 import { useTranslation } from '@/lib/i18n';
 import clsx from 'clsx';
 import { useToast } from '@/components/ui/toast';
-import { logFrontendMessage } from '@/lib/telemetry/logger';
+import { Button } from '@/components/retroui/Button';
+import { clearRecentLogEvents, logFrontendMessage } from '@/lib/telemetry/logger';
+import {
+  exportDiagnosticBundle,
+  getDiagnosticSnapshot,
+  type DiagnosticSnapshot,
+} from '@/lib/telemetry/diagnostics';
 import {
   DEFAULT_CLOUD_INTELLIGENCE_MODEL,
   type CloudIntelligenceStatus,
@@ -26,6 +33,9 @@ interface Props {
   cloudIntelligenceEnabled: boolean;
   onCloudIntelligenceEnabledChange: (enabled: boolean) => void;
   cloudStatus: CloudIntelligenceStatus;
+  watchedFolders: WatchedFolderRecord[];
+  onToggleWatchedFolder: (path: string, enabled: boolean) => void | Promise<void>;
+  onRemoveWatchedFolder: (path: string) => void | Promise<void>;
   onSaveCloudConfig: (input: SaveCloudIntelligenceConfigInput) => Promise<CloudIntelligenceStatus>;
   onTestCloudConnection: (input: TestCloudIntelligenceConnectionInput) => Promise<CloudIntelligenceStatus>;
   onClearCloudConfig: () => Promise<CloudIntelligenceStatus>;
@@ -38,6 +48,9 @@ export function SettingsModal({
   cloudIntelligenceEnabled,
   onCloudIntelligenceEnabledChange,
   cloudStatus,
+  watchedFolders,
+  onToggleWatchedFolder,
+  onRemoveWatchedFolder,
   onSaveCloudConfig,
   onTestCloudConnection,
   onClearCloudConfig,
@@ -45,7 +58,7 @@ export function SettingsModal({
   const { t } = useTranslation();
   const { toast } = useToast();
   
-  const [activeTab, setActiveTab] = useState<'general' | 'privacy' | 'cloud'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'privacy' | 'cloud' | 'diagnostics'>('general');
   
   // --- Hotkey State ---
   const [recording, setRecording] = useState(false);
@@ -63,6 +76,10 @@ export function SettingsModal({
   const [cloudModel, setCloudModel] = useState(DEFAULT_CLOUD_INTELLIGENCE_MODEL);
   const [cloudActionState, setCloudActionState] = useState<'idle' | 'testing' | 'saving' | 'clearing'>('idle');
   const [cloudFeedback, setCloudFeedback] = useState<{ tone: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [diagnosticSnapshot, setDiagnosticSnapshot] = useState<DiagnosticSnapshot | null>(null);
+  const [diagnosticLevelFilter, setDiagnosticLevelFilter] = useState('all');
+  const [diagnosticAreaFilter, setDiagnosticAreaFilter] = useState('all');
+  const [diagnosticActionState, setDiagnosticActionState] = useState<'idle' | 'loading' | 'exporting'>('idle');
 
   useEffect(() => {
     if (isOpen) {
@@ -78,6 +95,7 @@ export function SettingsModal({
           ? { tone: 'error', message: cloudStatus.lastError }
           : null
       );
+      void refreshDiagnostics();
     }
   }, [cloudStatus.lastError, cloudStatus.model, isOpen]);
 
@@ -236,6 +254,57 @@ export function SettingsModal({
     }
   };
 
+  const refreshDiagnostics = async () => {
+    setDiagnosticActionState('loading');
+    try {
+      setDiagnosticSnapshot(await getDiagnosticSnapshot());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void logFrontendMessage('error', message, 'settings-diagnostics-refresh');
+      toast(message, 'error');
+    } finally {
+      setDiagnosticActionState('idle');
+    }
+  };
+
+  const handleExportDiagnostics = async () => {
+    setDiagnosticActionState('exporting');
+    try {
+      const path = await exportDiagnosticBundle();
+      toast(path ? `${t('diagnostics_exported')} ${path}` : t('diagnostics_export_unavailable'), path ? 'success' : 'warning');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void logFrontendMessage('error', message, 'settings-diagnostics-export');
+      toast(message, 'error');
+    } finally {
+      setDiagnosticActionState('idle');
+    }
+  };
+
+  const handleCopyDiagnosticSummary = async () => {
+    if (!diagnosticSnapshot) {
+      return;
+    }
+
+    const summary = [
+      `source=${diagnosticSnapshot.source}`,
+      `generatedAt=${diagnosticSnapshot.generatedAt}`,
+      `logFilePath=${diagnosticSnapshot.logFilePath ?? 'n/a'}`,
+      `watchedFolders=${diagnosticSnapshot.watchedFolders.length}`,
+      `activeWatchRoots=${diagnosticSnapshot.activeWatchRoots.length}`,
+      `recentEvents=${diagnosticSnapshot.recentFrontendEvents.length}`,
+    ].join('\n');
+
+    await navigator.clipboard?.writeText(summary).catch(() => undefined);
+    toast(t('diagnostics_summary_copied'), 'success');
+  };
+
+  const handleClearDiagnosticEvents = async () => {
+    clearRecentLogEvents();
+    await refreshDiagnostics();
+    toast(t('diagnostics_cleared'), 'success');
+  };
+
   const cloudStatusLabel = cloudStatus.source === 'none'
     ? t('privacy_cloud_status_not_connected')
     : cloudStatus.lastError
@@ -247,36 +316,36 @@ export function SettingsModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-full max-w-2xl mx-4 flex flex-col overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        className="mx-4 flex w-full max-w-2xl flex-col overflow-hidden rounded border-2 border-border bg-card text-card-foreground shadow-md animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-5">
+        <div className="flex items-center justify-between border-b-2 border-border bg-secondary p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-primary-soft)]">
-              <SettingsIcon className="h-5 w-5 text-[var(--ui-primary)]" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border-2 border-border bg-primary">
+              <SettingsIcon className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight text-gray-900 dark:text-gray-100">{t('settings')}</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t('settings_subtitle')}</p>
+              <h2 className="font-head text-lg font-bold leading-tight text-foreground">{t('settings')}</h2>
+              <p className="text-xs text-muted-foreground">{t('settings_subtitle')}</p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:hover:bg-white/5 dark:hover:text-gray-300">
+          <Button type="button" onClick={onClose} variant="outline" size="icon" className="bg-card text-foreground">
             <X className="w-5 h-5" />
-          </button>
+          </Button>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-5 border-b border-[var(--ui-border)] bg-[var(--ui-surface)] px-6 pt-2">
+        <div className="flex flex-wrap items-center gap-2 border-b-2 border-border bg-card px-6 py-3">
           <button
             onClick={() => setActiveTab('general')}
             className={clsx(
-              'pb-3 pt-2 px-1 text-sm font-semibold border-b-2 transition-colors',
+              'rounded border-2 px-3 py-1.5 font-head text-xs font-semibold uppercase transition-colors',
               activeTab === 'general'
-                ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'border-border bg-primary text-primary-foreground shadow-sm'
+                : 'border-border bg-background text-foreground hover:bg-secondary'
             )}
           >
             {t('general')}
@@ -284,10 +353,10 @@ export function SettingsModal({
           <button
             onClick={() => setActiveTab('privacy')}
             className={clsx(
-              'pb-3 pt-2 px-1 text-sm font-semibold border-b-2 transition-colors',
+              'rounded border-2 px-3 py-1.5 font-head text-xs font-semibold uppercase transition-colors',
               activeTab === 'privacy'
-                ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'border-border bg-primary text-primary-foreground shadow-sm'
+                : 'border-border bg-background text-foreground hover:bg-secondary'
             )}
           >
             {t('privacy')}
@@ -295,48 +364,59 @@ export function SettingsModal({
           <button
             onClick={() => setActiveTab('cloud')}
             className={clsx(
-              'pb-3 pt-2 px-1 text-sm font-semibold border-b-2 transition-colors',
+              'rounded border-2 px-3 py-1.5 font-head text-xs font-semibold uppercase transition-colors',
               activeTab === 'cloud'
-                ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'border-border bg-primary text-primary-foreground shadow-sm'
+                : 'border-border bg-background text-foreground hover:bg-secondary'
             )}
           >
             {t('privacy_cloud_intelligence_title')}
           </button>
+          <button
+            onClick={() => setActiveTab('diagnostics')}
+            className={clsx(
+              'rounded border-2 px-3 py-1.5 font-head text-xs font-semibold uppercase transition-colors',
+              activeTab === 'diagnostics'
+                ? 'border-border bg-primary text-primary-foreground shadow-sm'
+                : 'border-border bg-background text-foreground hover:bg-secondary'
+            )}
+          >
+            {t('diagnostics')}
+          </button>
         </div>
 
         {/* Content Area */}
-        <div className="min-h-[320px] bg-[var(--ui-surface)] p-6">
+        <div className="min-h-[320px] bg-card p-6">
           {activeTab === 'general' && (
             <div className="space-y-6 animate-in slide-in-from-right-2 duration-300">
               <div>
-                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2 mb-2">
-                  <Keyboard className="w-4 h-4 text-indigo-500" />
+                <h3 className="mb-2 flex items-center gap-2 font-head text-sm font-bold text-foreground">
+                  <Keyboard className="w-4 h-4 text-primary" />
                   {t('shortcut_title')}
                 </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                <p className="mb-4 text-sm text-muted-foreground">
                   {t('shortcut_description')}
                 </p>
 
                 <div
                   className={clsx(
-                    'flex items-center justify-center gap-1.5 p-6 rounded-xl border-2 cursor-pointer transition-all select-none',
+                    'flex cursor-pointer select-none items-center justify-center gap-1.5 rounded border-2 p-6 transition-all',
                     recording
-                      ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 animate-pulse'
-                      : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/40'
+                      ? 'animate-pulse border-border bg-primary text-primary-foreground'
+                      : 'border-border bg-background hover:bg-secondary'
                   )}
                   onClick={() => { setRecording(true); setKeys([]); setHkStatus('idle'); }}
                   title={t('shortcut_record_title')}
                 >
                   {recording && keys.length === 0 ? (
-                    <span className="text-sm text-indigo-500 font-medium">{t('shortcut_record')}</span>
+                    <span className="font-head text-sm font-medium text-primary-foreground">{t('shortcut_record')}</span>
                   ) : (
                     (recording && keys.length > 0 ? keys : currentShortcut.split('+')).map((k, i) => (
                       <span key={i} className="flex items-center gap-1">
-                        {i > 0 && <span className="text-gray-400 text-xs font-bold">+</span>}
+                        {i > 0 && <span className="text-xs font-bold text-muted-foreground">+</span>}
                         <kbd className={clsx(
-                          'px-3 py-1.5 rounded-lg text-sm font-bold border shadow-sm min-w-[32px] text-center tracking-wider',
-                          recording ? 'bg-indigo-100 dark:bg-indigo-900/60 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-200' : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200'
+                          'min-w-[32px] rounded border-2 px-3 py-1.5 text-center font-head text-sm font-bold',
+                          recording ? 'border-border bg-secondary text-secondary-foreground' : 'border-border bg-card text-foreground'
                         )}>
                           {k === 'CommandOrControl' ? (navigator.platform.includes('Mac') ? '⌘' : 'Ctrl') : k}
                         </kbd>
@@ -346,12 +426,12 @@ export function SettingsModal({
                 </div>
 
                 {hkStatus === 'success' && (
-                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-300 text-sm bg-emerald-50 dark:bg-emerald-950/40 rounded-lg px-3 py-2 mt-3">
+                  <div className="mt-3 flex items-center gap-2 rounded border-2 border-border bg-[var(--ui-success-soft)] px-3 py-2 text-sm text-[var(--ui-success)]">
                     <Check className="w-4 h-4 shrink-0" /> {t('shortcut_success')}
                   </div>
                 )}
                 {hkStatus === 'error' && (
-                  <div className="flex items-start gap-2 text-red-600 dark:text-red-300 text-sm bg-red-50 dark:bg-red-950/40 rounded-lg px-3 py-2 mt-3">
+                  <div className="mt-3 flex items-start gap-2 rounded border-2 border-border bg-[var(--ui-danger-soft)] px-3 py-2 text-sm text-[var(--ui-danger)]">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {hkErrorMsg}
                   </div>
                 )}
@@ -362,17 +442,17 @@ export function SettingsModal({
           {activeTab === 'privacy' && (
             <div className="space-y-6 animate-in slide-in-from-right-2 duration-300">
               
-              <div className="flex items-start gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-4">
+              <div className="flex items-start gap-3 rounded border-2 border-border bg-secondary p-4">
                 <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--ui-primary)]" />
                 <div>
-                  <h4 className="text-sm font-bold leading-tight text-gray-900 dark:text-gray-100">{t('privacy_local_title')}</h4>
-                  <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-300">
+                  <h4 className="font-head text-sm font-bold leading-tight text-foreground">{t('privacy_local_title')}</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {t('privacy_local_description')}
                   </p>
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-[var(--ui-border)] shadow-sm">
+              <div className="overflow-hidden rounded border-2 border-border bg-card shadow-sm">
                 
                 {/* Metrics */}
                 <div className="flex items-center justify-between border-b border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-4">
@@ -389,63 +469,136 @@ export function SettingsModal({
                   {(ocrCandidateCount ?? 0) > 0 && (
                     <>
                       <div className="flex gap-4 items-start">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--ui-warning-soft)]">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border-2 border-border bg-[var(--ui-warning-soft)]">
                           <AlertCircle className="h-4 w-4 text-[var(--ui-warning)]" />
                         </div>
                         <div className="flex-1">
-                          <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t('privacy_ocr_candidates_title')}</h4>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                          <h4 className="font-head text-sm font-bold text-foreground">{t('privacy_ocr_candidates_title')}</h4>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
                             {t('privacy_ocr_candidates_description', { count: ocrCandidateCount ?? 0 })}
                           </p>
                         </div>
                       </div>
 
-                      <div className="h-px w-full bg-gray-100 dark:bg-gray-800 my-2" />
+                      <div className="my-2 h-0.5 w-full bg-border" />
                     </>
                   )}
                   
                   {/* Export */}
                   <div className="flex gap-4 items-start">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--ui-primary-soft)]">
-                      <Download className="h-4 w-4 text-[var(--ui-primary)]" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border-2 border-border bg-primary">
+                      <Download className="h-4 w-4 text-primary-foreground" />
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t('privacy_export_title')}</h4>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      <h4 className="font-head text-sm font-bold text-foreground">{t('privacy_export_title')}</h4>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
                         {t('privacy_export_description')}
                       </p>
-                      <button 
+                      <Button
+                        type="button"
                         onClick={handleExport}
                         disabled={isExporting || fileCount === 0}
-                        className="mt-3 flex items-center gap-2 rounded-lg bg-[var(--ui-primary)] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[var(--ui-primary-strong)] disabled:grayscale disabled:opacity-50"
+                        size="sm"
+                        className="mt-3"
                       >
                         {isExporting ? t('privacy_exporting') : t('privacy_export_cta')}
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
-                  <div className="h-px w-full bg-gray-100 dark:bg-gray-800 my-2" />
+                  <div className="my-2 h-0.5 w-full bg-border" />
 
                   {/* Reset */}
                   <div className="flex gap-4 items-start">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--ui-danger-soft)]">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border-2 border-border bg-[var(--ui-danger-soft)]">
                       <Trash2 className="h-4 w-4 text-[var(--ui-danger)]" />
                     </div>
                     <div className="flex-1">
                       <h4 className="text-sm font-bold text-[var(--ui-danger)]">{t('privacy_reset_title')}</h4>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                        {t('privacy_reset_description')} <strong className="text-gray-700 dark:text-gray-200">{t('privacy_reset_warning')}</strong>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {t('privacy_reset_description')} <strong className="text-foreground">{t('privacy_reset_warning')}</strong>
                       </p>
-                      <button 
+                      <Button
+                        type="button"
                         onClick={handleClear}
                         disabled={isClearing || fileCount === 0}
-                        className="mt-3 flex items-center gap-2 rounded-lg border border-[color:var(--ui-danger)]/30 bg-[var(--ui-surface)] px-4 py-2 text-xs font-bold text-[var(--ui-danger)] transition-colors hover:bg-[var(--ui-danger-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 border-[var(--ui-danger)] bg-card text-[var(--ui-danger)] hover:bg-[var(--ui-danger-soft)]"
                       >
                         {isClearing ? t('privacy_resetting') : t('privacy_reset_cta')}
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded border-2 border-border bg-card shadow-sm">
+                <div className="flex items-center justify-between border-b-2 border-border bg-secondary p-4">
+                  <div className="flex items-center gap-2 font-head text-sm font-medium text-foreground">
+                    <Shield className="h-4 w-4 shrink-0 text-[var(--ui-primary)]" />
+                    {t('watched_folders_title')}
+                  </div>
+                  <div className="rounded border-2 border-border bg-card px-2 py-1 font-head text-xs font-bold text-primary shadow-sm">
+                    {watchedFolders.length.toLocaleString()} {t('privacy_items')}
+                  </div>
+                </div>
+
+                <div className="space-y-4 bg-card p-4">
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    {t('watched_folders_description')}
+                  </p>
+
+                  {watchedFolders.length === 0 ? (
+                    <p className="rounded border-2 border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
+                      {t('watched_folders_empty')}
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {watchedFolders.map((folder) => (
+                        <div
+                          key={folder.path}
+                          className="rounded border-2 border-border bg-secondary px-3 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-foreground">
+                                {folder.path}
+                              </div>
+                              <div className="mt-1 text-[11px] text-muted-foreground">
+                                {folder.enabled ? t('watched_folder_state_on') : t('watched_folder_state_off')}
+                                {' · '}
+                                {t(`watched_folder_status_${folder.status}`)}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <Button
+                                type="button"
+                                onClick={() => void onToggleWatchedFolder(folder.path, !folder.enabled)}
+                                variant="outline"
+                                size="sm"
+                                className="bg-card text-[11px]"
+                                aria-label={folder.enabled ? t('watched_folder_disable_action') : t('watched_folder_enable_action')}
+                              >
+                                {folder.enabled ? t('watched_folder_disable_action') : t('watched_folder_enable_action')}
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => void onRemoveWatchedFolder(folder.path)}
+                                variant="outline"
+                                size="sm"
+                                className="border-[var(--ui-danger)] bg-card text-[11px] text-[var(--ui-danger)] hover:bg-[var(--ui-danger-soft)]"
+                                aria-label={t('watched_folder_remove_action')}
+                              >
+                                {t('watched_folder_remove_short')}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -457,11 +610,11 @@ export function SettingsModal({
               <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--ui-border)] bg-[var(--ui-primary-soft)]">
-                      <Cloud className="h-4 w-4 text-[var(--ui-primary)]" />
+                    <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded border-2 border-border bg-primary">
+                      <Cloud className="h-4 w-4 text-primary-foreground" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t('privacy_cloud_intelligence_title')}</h3>
+                      <h3 className="font-head text-sm font-bold text-foreground">{t('privacy_cloud_intelligence_title')}</h3>
                       <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
                         {t('privacy_cloud_intelligence_description')}
                       </p>
@@ -472,48 +625,48 @@ export function SettingsModal({
                     aria-pressed={cloudIntelligenceEnabled}
                     onClick={() => onCloudIntelligenceEnabledChange(!cloudIntelligenceEnabled)}
                     className={clsx(
-                      'relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors',
+                      'relative inline-flex h-7 w-12 shrink-0 items-center rounded border-2 transition-colors',
                       cloudIntelligenceEnabled
-                        ? 'border-[var(--ui-primary)] bg-[var(--ui-primary)]'
-                        : 'border-gray-300 bg-gray-200 dark:border-gray-700 dark:bg-gray-800'
+                        ? 'border-border bg-primary'
+                        : 'border-border bg-card'
                     )}
                   >
                     <span
                       className={clsx(
-                        'inline-block h-5 w-5 rounded-full bg-white shadow transition-transform',
+                        'inline-block h-5 w-5 rounded bg-background shadow transition-transform',
                         cloudIntelligenceEnabled ? 'translate-x-6' : 'translate-x-1'
                       )}
                     />
                   </button>
                 </div>
-                <p className="mt-3 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
                   {cloudIntelligenceEnabled
                     ? t('privacy_cloud_intelligence_enabled_hint')
                     : t('privacy_cloud_intelligence_disabled_hint')}
                 </p>
               </div>
 
-              <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4">
+              <div className="rounded border-2 border-border bg-card p-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-200">
+                  <span className="inline-flex items-center gap-2 font-head text-xs font-semibold text-foreground">
                     <Shield className="h-3.5 w-3.5 text-[var(--ui-primary)]" />
                     {t('privacy_cloud_intelligence_status')}
                   </span>
-                  <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-2.5 py-1 text-[10px] font-semibold text-gray-700 dark:text-gray-200">
+                  <span className="rounded border-2 border-border bg-secondary px-2.5 py-1 font-head text-[10px] font-semibold text-foreground">
                     {cloudStatusLabel}
                   </span>
-                  <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-2.5 py-1 font-mono text-[10px] text-gray-600 dark:text-gray-300">
+                  <span className="rounded border-2 border-border bg-secondary px-2.5 py-1 font-mono text-[10px] text-foreground">
                     {cloudStatus.model || DEFAULT_CLOUD_INTELLIGENCE_MODEL}
                   </span>
                 </div>
 
                 {cloudStatus.lastTestedAt && (
-                  <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
                     {t('privacy_cloud_last_tested')}: {new Date(cloudStatus.lastTestedAt).toLocaleString()}
                   </p>
                 )}
 
-                <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
                   {cloudApiKey.trim()
                     ? t('privacy_cloud_testing_typed_key')
                     : cloudStatus.configured
@@ -525,12 +678,12 @@ export function SettingsModal({
                   <div
                     role={cloudFeedback.tone === 'error' ? 'alert' : 'status'}
                     className={clsx(
-                      'mt-3 rounded-lg border px-3 py-2 text-xs leading-relaxed',
+                      'mt-3 rounded border-2 px-3 py-2 text-xs leading-relaxed',
                       cloudFeedback.tone === 'success'
                         ? 'border-[color:var(--ui-success)]/30 bg-[var(--ui-success-soft)] text-[var(--ui-success)]'
                         : cloudFeedback.tone === 'error'
                           ? 'border-[color:var(--ui-danger)]/30 bg-[var(--ui-danger-soft)] text-[var(--ui-danger)]'
-                          : 'border-[var(--ui-border)] bg-[var(--ui-surface-muted)] text-gray-700 dark:text-gray-200'
+                          : 'border-border bg-secondary text-foreground'
                     )}
                   >
                     {cloudFeedback.message}
@@ -538,7 +691,7 @@ export function SettingsModal({
                 )}
 
                 {!cloudFeedback && cloudStatus.lastError && (
-                  <div className="mt-3 rounded-lg border border-[color:var(--ui-danger)]/30 bg-[var(--ui-danger-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--ui-danger)]">
+                  <div className="mt-3 rounded border-2 border-[var(--ui-danger)] bg-[var(--ui-danger-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--ui-danger)]">
                     {cloudStatus.lastError}
                   </div>
                 )}
@@ -546,7 +699,7 @@ export function SettingsModal({
                 <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
                   <div className="space-y-3">
                     <label className="block">
-                      <span className="mb-1 block text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+                      <span className="mb-1 block font-head text-[11px] font-semibold text-foreground">
                         {t('privacy_cloud_api_key_label')}
                       </span>
                       <input
@@ -555,11 +708,11 @@ export function SettingsModal({
                         onChange={(event) => setCloudApiKey(event.target.value)}
                         placeholder={t('privacy_cloud_api_key_placeholder')}
                         aria-label={t('privacy_cloud_api_key_label')}
-                        className="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-sm text-gray-900 outline-none transition-colors focus:border-[var(--ui-primary)] dark:text-gray-100"
+                        className="w-full rounded border-2 border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-1 block text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+                      <span className="mb-1 block font-head text-[11px] font-semibold text-foreground">
                         {t('privacy_cloud_model_label')}
                       </span>
                       <input
@@ -567,45 +720,50 @@ export function SettingsModal({
                         value={cloudModel}
                         onChange={(event) => setCloudModel(event.target.value)}
                         aria-label={t('privacy_cloud_model_label')}
-                        className="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-sm text-gray-900 outline-none transition-colors focus:border-[var(--ui-primary)] dark:text-gray-100"
+                        className="w-full rounded border-2 border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
                       />
                     </label>
-                    <p className="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
                       {t('privacy_cloud_storage_note')}
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
-                    <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-200">
+                  <div className="rounded border-2 border-border bg-secondary p-3">
+                    <h4 className="flex items-center gap-2 font-head text-xs font-bold uppercase text-foreground">
                       <KeyRound className="h-3.5 w-3.5 text-[var(--ui-primary)]" />
                       {t('privacy_cloud_connection_actions')}
                     </h4>
                     <div className="mt-3 flex flex-col gap-2">
-                      <button
+                      <Button
                         type="button"
                         onClick={handleTestCloudConnection}
                         disabled={cloudActionState !== 'idle'}
-                        className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-[var(--ui-surface-muted)] disabled:opacity-50 dark:text-gray-200"
+                        variant="outline"
+                        size="sm"
+                        className="w-full bg-card text-xs"
                       >
                         {cloudActionState === 'testing' ? t('privacy_cloud_testing') : t('privacy_cloud_test_cta')}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         onClick={handleSaveCloudConfig}
                         disabled={cloudActionState !== 'idle' || !cloudApiKey.trim()}
-                        className="rounded-lg bg-[var(--ui-primary)] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[var(--ui-primary-strong)] disabled:opacity-50"
+                        size="sm"
+                        className="w-full text-xs"
                       >
                         {cloudActionState === 'saving' ? t('privacy_cloud_saving') : t('privacy_cloud_save_cta')}
-                      </button>
+                      </Button>
                       {cloudStatus.configured && (
-                        <button
+                        <Button
                           type="button"
                           onClick={handleClearCloudConfig}
                           disabled={cloudActionState !== 'idle'}
-                          className="rounded-lg border border-[color:var(--ui-danger)]/30 bg-[var(--ui-surface)] px-3 py-2 text-xs font-semibold text-[var(--ui-danger)] transition-colors hover:bg-[var(--ui-danger-soft)] disabled:opacity-50"
+                          variant="outline"
+                          size="sm"
+                          className="w-full border-[var(--ui-danger)] bg-card text-xs text-[var(--ui-danger)] hover:bg-[var(--ui-danger-soft)]"
                         >
                           {cloudActionState === 'clearing' ? t('privacy_cloud_clearing') : t('privacy_cloud_clear_cta')}
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -613,8 +771,154 @@ export function SettingsModal({
               </div>
             </div>
           )}
-        </div>
 
+          {activeTab === 'diagnostics' && (
+            <div className="space-y-5 animate-in slide-in-from-right-2 duration-300">
+              <div className="rounded border-2 border-border bg-secondary p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border-2 border-border bg-primary">
+                      <Activity className="h-4 w-4 text-primary-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="font-head text-sm font-bold text-foreground">{t('diagnostics_title')}</h3>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {t('diagnostics_description')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => void refreshDiagnostics()}
+                      disabled={diagnosticActionState === 'loading'}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 bg-card text-xs"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {t('diagnostics_refresh')}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void handleCopyDiagnosticSummary()}
+                      disabled={!diagnosticSnapshot}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 bg-card text-xs"
+                    >
+                      <ClipboardList className="h-3.5 w-3.5" />
+                      {t('diagnostics_copy_summary')}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void handleClearDiagnosticEvents()}
+                      disabled={!diagnosticSnapshot}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 bg-card text-xs"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {t('diagnostics_clear_events')}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void handleExportDiagnostics()}
+                      disabled={diagnosticActionState === 'exporting'}
+                      size="sm"
+                      className="gap-2 text-xs"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      {diagnosticActionState === 'exporting' ? t('diagnostics_exporting') : t('diagnostics_export_bundle')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                  <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_events')}</div>
+                  <div className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">
+                    {(diagnosticSnapshot?.recentFrontendEvents.length ?? 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                  <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_watch_roots')}</div>
+                  <div className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">
+                    {(diagnosticSnapshot?.activeWatchRoots.length ?? 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                  <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_native_logs')}</div>
+                  <div className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">
+                    {(diagnosticSnapshot?.nativeLogFiles?.length ?? 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                  <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_log_path')}</div>
+                  <div className="mt-1 truncate text-xs font-semibold text-gray-900 dark:text-gray-100">
+                    {diagnosticSnapshot?.logFilePath ?? t('diagnostics_not_available')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)]">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ui-border)] p-3">
+                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{t('diagnostics_recent_events')}</div>
+                  <div className="flex gap-2">
+                    <select
+                      value={diagnosticLevelFilter}
+                      onChange={(event) => setDiagnosticLevelFilter(event.target.value)}
+                      className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200"
+                      aria-label={t('diagnostics_filter_level')}
+                    >
+                      {['all', 'debug', 'info', 'warn', 'error'].map((level) => (
+                        <option key={level} value={level}>{level}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={diagnosticAreaFilter}
+                      onChange={(event) => setDiagnosticAreaFilter(event.target.value)}
+                      className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200"
+                      aria-label={t('diagnostics_filter_area')}
+                    >
+                      {['all', 'app', 'watch', 'scan', 'indexing', 'search', 'tray', 'tree', 'settings', 'cloud', 'ui'].map((area) => (
+                        <option key={area} value={area}>{area}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {(diagnosticSnapshot?.recentFrontendEvents ?? [])
+                    .filter((event) => diagnosticLevelFilter === 'all' || event.level === diagnosticLevelFilter)
+                    .filter((event) => diagnosticAreaFilter === 'all' || event.area === diagnosticAreaFilter)
+                    .slice()
+                    .reverse()
+                    .map((event) => (
+                      <div key={event.id} className="border-b border-[var(--ui-border)] px-3 py-2 last:border-b-0">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                          <span className="rounded border border-[var(--ui-border)] px-1.5 py-0.5 font-bold uppercase text-gray-600 dark:text-gray-300">{event.level}</span>
+                          <span className="rounded border border-[var(--ui-border)] px-1.5 py-0.5 font-bold text-[var(--ui-primary)]">{event.area}</span>
+                          <span className="font-mono text-gray-500 dark:text-gray-400">{event.event}</span>
+                        </div>
+                        <div className="mt-1 text-xs font-medium text-gray-900 dark:text-gray-100">{event.message}</div>
+                        {(event.path || event.correlationId) && (
+                          <div className="mt-1 truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                            {event.correlationId ? `${event.correlationId} · ` : ''}{event.path}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  {(diagnosticSnapshot?.recentFrontendEvents.length ?? 0) === 0 && (
+                    <div className="px-3 py-8 text-center text-xs text-gray-500 dark:text-gray-400">
+                      {t('diagnostics_empty')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -5,7 +5,9 @@ import { Pagination } from '@/components/ui/pagination';
 import { ProgressBar } from '@/components/ui/progress-bar';
 import { HelperAlert } from '@/components/ui/helper-alert';
 import { TagInput } from '@/components/ui/tag-input';
+import { Button as RetroButton } from '@/components/retroui/Button';
 import { I18nProvider } from '@/lib/i18n';
+import { FilterSection } from '@/components/sidebar/filter-section';
 
 describe('shared UI components', () => {
   it('returns null pagination when only one page exists', () => {
@@ -29,6 +31,16 @@ describe('shared UI components', () => {
     expect(onPageChange).toHaveBeenNthCalledWith(3, 10);
   });
 
+  it('uses RetroUI tokenized surfaces for pagination so dark mode does not keep a white pill', () => {
+    const { container } = render(
+      <Pagination currentPage={2} totalPages={4} onPageChange={() => undefined} />
+    );
+
+    expect(container.innerHTML).toContain('bg-secondary');
+    expect(container.innerHTML).toContain('border-border');
+    expect(container.innerHTML).toContain('font-head');
+  });
+
   it('renders progress details and pause action', async () => {
     const onTogglePause = vi.fn();
     const user = userEvent.setup();
@@ -36,9 +48,11 @@ describe('shared UI components', () => {
     render(
       <ProgressBar
         isScanning
+        phase="indexing"
+        discoveredCount={10}
         processedCount={5}
-        totalCount={10}
-        currentFile="spec.md"
+        totalKnownCount={10}
+        currentPath="spec.md"
         isPaused={false}
         onTogglePause={onTogglePause}
       />
@@ -54,30 +68,61 @@ describe('shared UI components', () => {
     render(
       <ProgressBar
         isScanning
-        processedCount={2}
-        currentFile=""
+        phase="discovering"
+        discoveredCount={2}
+        processedCount={0}
+        totalKnownCount={0}
+        currentPath=""
         isPaused
       />
     );
 
     expect(screen.getByText('Paused')).toBeInTheDocument();
-    expect(screen.getByText('Initializing...')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for files...')).toBeInTheDocument();
     expect(screen.queryByText(/Indexing/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /resume/i })).not.toBeInTheDocument();
   });
 
-  it('treats zero totals as indeterminate progress', () => {
+  it('renders finalizing progress with a capped paused resume action', async () => {
+    const onTogglePause = vi.fn();
+    const user = userEvent.setup();
+
     render(
       <ProgressBar
         isScanning
+        phase="finalizing"
+        discoveredCount={20}
+        processedCount={25}
+        totalKnownCount={20}
+        currentPath="handoff.pdf"
+        isPaused
+        onTogglePause={onTogglePause}
+      />
+    );
+
+    expect(screen.getByText('25 / 20')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(screen.getByText('handoff.pdf')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /resume/i }));
+    expect(onTogglePause).toHaveBeenCalledOnce();
+  });
+
+  it('treats discovery progress as indeterminate and avoids 0 of n messaging', () => {
+    render(
+      <ProgressBar
+        isScanning
+        phase="discovering"
+        discoveredCount={12}
         processedCount={0}
-        totalCount={0}
-        currentFile="zero.md"
+        totalKnownCount={99}
+        currentPath="zero.md"
         isPaused={false}
       />
     );
 
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 / 99')).not.toBeInTheDocument();
+    expect(screen.getByText('12 found')).toBeInTheDocument();
     expect(screen.getByText('zero.md')).toBeInTheDocument();
   });
 
@@ -85,8 +130,11 @@ describe('shared UI components', () => {
     const { container } = render(
       <ProgressBar
         isScanning={false}
+        phase="discovering"
+        discoveredCount={0}
         processedCount={0}
-        currentFile="spec.md"
+        totalKnownCount={0}
+        currentPath="spec.md"
       />
     );
 
@@ -155,5 +203,35 @@ describe('shared UI components', () => {
     await user.click(document.body);
 
     expect(screen.queryByPlaceholderText('Thêm thẻ...')).not.toBeInTheDocument();
+  });
+
+  it('uses RetroUI tokenized selected states for sidebar filters', () => {
+    const { container } = render(
+      <FilterSection
+        title="Date modified"
+        type="radio"
+        selectedIds={['any']}
+        onChange={() => undefined}
+        options={[
+          { id: 'any', label: 'Any time' },
+          { id: 'today', label: 'Today' },
+        ]}
+      />
+    );
+
+    expect(container.innerHTML).toContain('bg-secondary');
+    expect(container.innerHTML).toContain('border-border');
+    expect(container.innerHTML).toContain('font-head');
+  });
+
+  it('renders RetroUI buttons with the NeoBrutalist token contract', () => {
+    render(<RetroButton>Scan folder</RetroButton>);
+
+    const button = screen.getByRole('button', { name: 'Scan folder' });
+    expect(button).toHaveClass('font-head');
+    expect(button).toHaveClass('border-2');
+    expect(button).toHaveClass('border-black');
+    expect(button.className).toContain('bg-primary');
+    expect(button.className).toContain('hover:bg-primary-hover');
   });
 });

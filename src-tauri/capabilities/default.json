@@ -10,7 +10,8 @@
   },
   "windows": [
     "main",
-    "spotlight"
+    "spotlight",
+    "tray-activity"
   ],
   "permissions": [
     "core:default",

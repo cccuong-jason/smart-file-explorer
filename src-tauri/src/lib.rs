@@ -2,24 +2,128 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
-use std::{env, fs, io::Read};
+use std::{
+    env, fs,
+    io::{Read, Seek, SeekFrom},
+};
 use tauri::{AppHandle, Emitter, Manager, State};
 use walkdir::{DirEntry, WalkDir};
 
 const OPENROUTER_KEY_SERVICE: &str = "smart-file-explorer";
 const OPENROUTER_KEY_ACCOUNT: &str = "openrouter_api_key";
+const RECENT_FRONTEND_EVENT_LIMIT: usize = 500;
+const DIAGNOSTIC_LOG_FILE_LIMIT: usize = 5;
+const DIAGNOSTIC_LOG_TAIL_BYTES: u64 = 200_000;
 
 struct AppState {
-    watcher: Mutex<Option<RecommendedWatcher>>,
+    watch_manager: Mutex<WatchManagerState>,
+    debounce_tokens: Arc<Mutex<HashMap<String, u64>>>,
+    next_debounce_token: Arc<AtomicU64>,
+    scan_sessions: Arc<Mutex<HashMap<String, NativeScanSessionControl>>>,
+    next_scan_session_id: Arc<AtomicU64>,
+    recent_frontend_events: Mutex<VecDeque<FrontendLogEvent>>,
+}
+
+struct WatchManagerState {
+    watcher: Option<RecommendedWatcher>,
+    active_roots: Vec<PathBuf>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct NativeScanSessionControl {
+    paused: bool,
+    cancelled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct NativeWatchStateSnapshot {
+    watched_folders: Vec<WatchedFolderRecord>,
+    active_roots: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendLogEvent {
+    id: String,
+    timestamp: String,
+    level: String,
+    area: String,
+    event: String,
+    message: String,
+    correlation_id: Option<String>,
+    session_id: Option<String>,
+    path: Option<String>,
+    data: Option<serde_json::Value>,
+    error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticSnapshot {
+    source: String,
+    app_version: String,
+    generated_at: String,
+    log_file_path: Option<String>,
+    native_log_files: Vec<DiagnosticLogFile>,
+    watched_folders: Vec<WatchedFolderRecord>,
+    active_watch_roots: Vec<String>,
+    recent_frontend_events: Vec<FrontendLogEvent>,
+    scan_sessions: Vec<ScanSessionDiagnostic>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticLogFile {
+    path: String,
+    truncated: bool,
+    content: String,
 }
 
 #[derive(Clone, Serialize)]
 struct FileEventPayload {
     kind: String,
     path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeScanSessionEvent {
+    event_type: String,
+    session_id: String,
+    scope: String,
+    phase: String,
+    discovered_count: u64,
+    total_known_count: u64,
+    current_path: Option<String>,
+    watch_path: Option<String>,
+    batch: Option<Vec<FileMetadata>>,
+    error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ScanSessionDiagnostic {
+    session_id: String,
+    paused: bool,
+    cancelled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct WatchedFolderRecord {
+    path: String,
+    enabled: bool,
+    status: String,
+    last_scan_started_at: Option<u64>,
+    last_scan_completed_at: Option<u64>,
+    last_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -30,7 +134,7 @@ struct ScanDirectorySuggestion {
     description: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMetadata {
     path: String,
@@ -138,6 +242,11 @@ struct OpenRouterResponse {
     choices: Vec<OpenRouterChoice>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct OpenRouterConnectionProbe {
+    ok: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct FolderIntelligenceSummaryPayload {
     title: Option<String>,
@@ -171,7 +280,7 @@ fn is_supported_text_ext(ext: &str) -> bool {
     [
         "txt", "md", "json", "js", "ts", "tsx", "jsx", "css", "html", "py", "java", "c", "cpp",
         "h", "hpp", "rs", "go", "yml", "yaml", "xml", "ini", "env", "sh", "bat", "ps1", "sql",
-        "rb", "php", "pdf", "docx", "png", "jpg", "jpeg",
+        "rb", "php", "pdf", "doc", "docx", "png", "jpg", "jpeg",
     ]
     .contains(&ext)
 }
@@ -353,6 +462,7 @@ fn extract_document_segments_by_extension(
                 })
                 .collect())
         }
+        "doc" => Ok(Vec::new()),
         "docx" => extract_docx_segments(path),
         "png" | "jpg" | "jpeg" => Ok(Vec::new()),
         _ => {
@@ -388,6 +498,480 @@ fn load_project_env_files() {
     }
 }
 
+fn watched_folders_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())?;
+    fs::create_dir_all(&config_dir).map_err(|error| error.to_string())?;
+    Ok(config_dir.join("watched-folders.json"))
+}
+
+fn load_watched_folder_records(app_handle: &AppHandle) -> Result<Vec<WatchedFolderRecord>, String> {
+    let path = watched_folders_path(app_handle)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    serde_json::from_str(&content).map_err(|error| error.to_string())
+}
+
+fn save_watched_folder_records(
+    app_handle: &AppHandle,
+    records: &[WatchedFolderRecord],
+) -> Result<(), String> {
+    let path = watched_folders_path(app_handle)?;
+    let content = serde_json::to_string_pretty(records).map_err(|error| error.to_string())?;
+    fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn unix_timestamp_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+fn diagnostic_log_file_path(app_handle: &AppHandle) -> Option<String> {
+    app_handle
+        .path()
+        .app_log_dir()
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+fn read_diagnostic_log_tail(path: &Path) -> Result<(String, bool), String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let size = file.metadata().map_err(|error| error.to_string())?.len();
+    let truncated = size > DIAGNOSTIC_LOG_TAIL_BYTES;
+
+    if truncated {
+        file.seek(SeekFrom::Start(size - DIAGNOSTIC_LOG_TAIL_BYTES))
+            .map_err(|error| error.to_string())?;
+    }
+
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+
+    Ok((String::from_utf8_lossy(&bytes).into_owned(), truncated))
+}
+
+fn read_native_log_files(app_handle: &AppHandle) -> Vec<DiagnosticLogFile> {
+    let Ok(log_dir) = app_handle.path().app_log_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(log_dir) else {
+        return Vec::new();
+    };
+
+    let mut files = entries
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_type()
+                .map(|file_type| file_type.is_file())
+                .unwrap_or(false)
+        })
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| extension.eq_ignore_ascii_case("log"))
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    files.sort_by(|left, right| {
+        let left_modified = left
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        let right_modified = right
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        right_modified.cmp(&left_modified)
+    });
+
+    files
+        .into_iter()
+        .take(DIAGNOSTIC_LOG_FILE_LIMIT)
+        .filter_map(|entry| {
+            let path = entry.path();
+            read_diagnostic_log_tail(&path)
+                .ok()
+                .map(|(content, truncated)| DiagnosticLogFile {
+                    path: path.to_string_lossy().into_owned(),
+                    truncated,
+                    content,
+                })
+        })
+        .collect()
+}
+
+fn build_diagnostic_snapshot(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<DiagnosticSnapshot, String> {
+    let watched_folders = load_watched_folder_records(app_handle)?;
+    let active_watch_roots = state
+        .watch_manager
+        .lock()
+        .unwrap()
+        .active_roots
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let recent_frontend_events = state
+        .recent_frontend_events
+        .lock()
+        .unwrap()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let scan_sessions = state
+        .scan_sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(session_id, session)| ScanSessionDiagnostic {
+            session_id: session_id.clone(),
+            paused: session.paused,
+            cancelled: session.cancelled,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(DiagnosticSnapshot {
+        source: "native".to_string(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        generated_at: unix_timestamp_millis().to_string(),
+        log_file_path: diagnostic_log_file_path(app_handle),
+        native_log_files: read_native_log_files(app_handle),
+        watched_folders,
+        active_watch_roots,
+        recent_frontend_events,
+        scan_sessions,
+    })
+}
+
+fn normalize_watch_path(value: &str) -> String {
+    let path = PathBuf::from(value.trim());
+    fs::canonicalize(&path)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn normalize_watched_folder_record(record: WatchedFolderRecord) -> WatchedFolderRecord {
+    WatchedFolderRecord {
+        path: normalize_watch_path(&record.path),
+        ..record
+    }
+}
+
+fn upsert_watched_folder_record(
+    app_handle: &AppHandle,
+    folder: WatchedFolderRecord,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    let folder = normalize_watched_folder_record(folder);
+    let mut records = load_watched_folder_records(app_handle)?;
+
+    if let Some(existing) = records.iter_mut().find(|record| record.path == folder.path) {
+        *existing = folder;
+    } else {
+        records.push(folder);
+    }
+
+    records.sort_by(|a, b| a.path.cmp(&b.path));
+    save_watched_folder_records(app_handle, &records)?;
+    Ok(records)
+}
+
+fn update_watched_folder_enabled(
+    app_handle: &AppHandle,
+    path: &str,
+    enabled: bool,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    let normalized_path = normalize_watch_path(path);
+    let mut records = load_watched_folder_records(app_handle)?;
+
+    if let Some(existing) = records
+        .iter_mut()
+        .find(|record| record.path == normalized_path)
+    {
+        existing.enabled = enabled;
+        existing.status = if enabled { "watching" } else { "paused" }.to_string();
+        existing.last_error = None;
+    }
+
+    save_watched_folder_records(app_handle, &records)?;
+    Ok(records)
+}
+
+fn remove_watched_folder_record(
+    app_handle: &AppHandle,
+    path: &str,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    let normalized_path = normalize_watch_path(path);
+    let mut records = load_watched_folder_records(app_handle)?;
+    records.retain(|record| record.path != normalized_path);
+    save_watched_folder_records(app_handle, &records)?;
+    Ok(records)
+}
+
+fn effective_watch_roots(records: &[WatchedFolderRecord]) -> Vec<PathBuf> {
+    let mut enabled_paths = records
+        .iter()
+        .filter(|record| record.enabled)
+        .map(|record| PathBuf::from(&record.path))
+        .collect::<Vec<_>>();
+
+    enabled_paths.sort();
+
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for path in enabled_paths {
+        if roots.iter().any(|existing| path.starts_with(existing)) {
+            continue;
+        }
+        roots.retain(|existing| !existing.starts_with(&path));
+        roots.push(path);
+    }
+
+    roots
+}
+
+fn is_temporary_or_partial_download(path: &Path) -> bool {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    file_name.starts_with("~$")
+        || file_name.ends_with(".tmp")
+        || file_name.ends_with(".temp")
+        || file_name.ends_with(".part")
+        || file_name.ends_with(".partial")
+        || file_name.ends_with(".crdownload")
+}
+
+#[cfg(test)]
+fn should_emit_watched_file_event(path: &Path) -> bool {
+    watched_file_event_rejection_reason(path).is_none()
+}
+
+fn watched_file_event_rejection_reason(path: &Path) -> Option<&'static str> {
+    if !path.is_file() {
+        return Some("not_a_file");
+    }
+
+    if is_temporary_or_partial_download(path) {
+        return Some("temporary_or_incomplete_download");
+    }
+
+    let Some(ext) = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_lowercase())
+    else {
+        return Some("missing_extension");
+    };
+
+    if is_ignored_file_ext(&ext) || !is_supported_text_ext(&ext) {
+        return Some("unsupported_extension");
+    }
+
+    None
+}
+
+fn should_include_scanned_file(path: &Path) -> bool {
+    if !path.is_file() || is_temporary_or_partial_download(path) {
+        return false;
+    }
+
+    let Some(ext) = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_lowercase())
+    else {
+        return false;
+    };
+
+    !is_ignored_file_ext(&ext) && is_supported_text_ext(&ext)
+}
+
+fn emit_scan_session_event(app_handle: &AppHandle, event: NativeScanSessionEvent) {
+    let _ = app_handle.emit("scan-session-event", event);
+}
+
+fn wait_for_scan_session_turn(
+    scan_sessions: &Arc<Mutex<HashMap<String, NativeScanSessionControl>>>,
+    session_id: &str,
+) -> Result<(), String> {
+    loop {
+        let state = scan_sessions
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_default();
+
+        if state.cancelled {
+            return Err("cancelled".to_string());
+        }
+
+        if !state.paused {
+            return Ok(());
+        }
+
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+fn emit_debounced_watch_event(
+    app_handle: AppHandle,
+    tokens: Arc<Mutex<HashMap<String, u64>>>,
+    next_debounce_token: Arc<AtomicU64>,
+    kind: &str,
+    path: &Path,
+) {
+    let path_string = path.to_string_lossy().into_owned();
+    let kind_string = kind.to_string();
+
+    if kind_string == "remove" {
+        log::info!("[watch] emitting remove event for {}", path_string);
+        tokens.lock().unwrap().remove(&path_string);
+        let _ = app_handle.emit(
+            "sys-file-event",
+            FileEventPayload {
+                kind: kind_string,
+                path: path_string,
+            },
+        );
+        return;
+    }
+
+    if let Some(reason) = watched_file_event_rejection_reason(path) {
+        log::info!(
+            "[watch] ignoring event kind={} path={} reason={}",
+            kind_string,
+            path_string,
+            reason
+        );
+        return;
+    }
+
+    let token = next_debounce_token.fetch_add(1, Ordering::SeqCst) + 1;
+    log::info!(
+        "[watch] accepted event kind={} path={} token={} status=enqueued_for_background_indexing",
+        kind_string,
+        path_string,
+        token
+    );
+    tokens.lock().unwrap().insert(path_string.clone(), token);
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(325));
+        let should_emit = tokens
+            .lock()
+            .unwrap()
+            .get(&path_string)
+            .copied()
+            .map(|current| current == token)
+            .unwrap_or(false);
+
+        if should_emit {
+            log::info!(
+                "[watch] emitting debounced event kind={} path={} token={}",
+                kind_string,
+                path_string,
+                token
+            );
+            let _ = app_handle.emit(
+                "sys-file-event",
+                FileEventPayload {
+                    kind: kind_string.clone(),
+                    path: path_string.clone(),
+                },
+            );
+        }
+    });
+}
+
+fn rebuild_native_watch_roots(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    let records = load_watched_folder_records(app_handle)?;
+    let next_roots = effective_watch_roots(&records);
+    log::info!("[watch] rebuilding native watch roots: {:?}", next_roots);
+    let mut manager = state.watch_manager.lock().unwrap();
+
+    if manager.watcher.is_none() {
+        let handle = app_handle.clone();
+        let debounce_tokens = Arc::clone(&state.debounce_tokens);
+        let next_debounce_token = Arc::clone(&state.next_debounce_token);
+        let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(event) = res {
+                let kind_str = match event.kind {
+                    notify::EventKind::Create(_) => "create",
+                    notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => "rename",
+                    notify::EventKind::Modify(_) => "modify",
+                    notify::EventKind::Remove(_) => "remove",
+                    _ => "other",
+                };
+
+                if kind_str != "other" {
+                    for path in event.paths {
+                        emit_debounced_watch_event(
+                            handle.clone(),
+                            Arc::clone(&debounce_tokens),
+                            Arc::clone(&next_debounce_token),
+                            kind_str,
+                            &path,
+                        );
+                    }
+                }
+            }
+        })
+        .map_err(|error| error.to_string())?;
+
+        manager.watcher = Some(watcher);
+    }
+
+    let previous_roots = manager.active_roots.clone();
+    if let Some(watcher) = manager.watcher.as_mut() {
+        for existing_root in previous_roots.iter() {
+            if !next_roots
+                .iter()
+                .any(|next_root| next_root == existing_root)
+            {
+                let _ = watcher.unwatch(existing_root);
+            }
+        }
+
+        for next_root in next_roots.iter() {
+            if !previous_roots
+                .iter()
+                .any(|existing_root| existing_root == next_root)
+            {
+                log::info!(
+                    "[watch] starting watcher for {}",
+                    next_root.to_string_lossy()
+                );
+                watcher
+                    .watch(next_root, RecursiveMode::Recursive)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+
+    manager.active_roots = next_roots;
+    Ok(records)
+}
+
 fn cloud_config_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let config_dir = app_handle
         .path()
@@ -414,7 +998,10 @@ fn load_cloud_config(app_handle: &AppHandle) -> Result<CloudIntelligenceConfig, 
     Ok(config)
 }
 
-fn save_cloud_config_file(app_handle: &AppHandle, config: &CloudIntelligenceConfig) -> Result<(), String> {
+fn save_cloud_config_file(
+    app_handle: &AppHandle,
+    config: &CloudIntelligenceConfig,
+) -> Result<(), String> {
     let path = cloud_config_path(app_handle)?;
     let content = serde_json::to_string_pretty(config).map_err(|error| error.to_string())?;
     fs::write(path, content).map_err(|error| error.to_string())
@@ -429,7 +1016,8 @@ fn clear_cloud_config_file(app_handle: &AppHandle) -> Result<(), String> {
 }
 
 fn keyring_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(OPENROUTER_KEY_SERVICE, OPENROUTER_KEY_ACCOUNT).map_err(|error| error.to_string())
+    keyring::Entry::new(OPENROUTER_KEY_SERVICE, OPENROUTER_KEY_ACCOUNT)
+        .map_err(|error| error.to_string())
 }
 
 fn get_user_openrouter_api_key() -> Result<Option<String>, String> {
@@ -442,10 +1030,17 @@ fn get_user_openrouter_api_key() -> Result<Option<String>, String> {
 }
 
 fn normalize_openrouter_api_key(value: &str) -> String {
-    value
+    let normalized = value
         .trim()
         .trim_matches('"')
         .trim_matches('\'')
+        .to_string();
+
+    normalized
+        .strip_prefix("Bearer ")
+        .or_else(|| normalized.strip_prefix("bearer "))
+        .unwrap_or(normalized.as_str())
+        .trim()
         .to_string()
 }
 
@@ -459,7 +1054,8 @@ fn normalize_openrouter_model(value: &str) -> String {
 
 fn set_user_openrouter_api_key(value: &str) -> Result<(), String> {
     let entry = keyring_entry()?;
-    entry.set_password(&normalize_openrouter_api_key(value))
+    entry
+        .set_password(&normalize_openrouter_api_key(value))
         .map_err(|error| error.to_string())
 }
 
@@ -508,7 +1104,10 @@ fn now_timestamp_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn build_cloud_intelligence_status(app_handle: Option<&AppHandle>, last_error: Option<String>) -> Result<CloudIntelligenceStatus, String> {
+fn build_cloud_intelligence_status(
+    app_handle: Option<&AppHandle>,
+    last_error: Option<String>,
+) -> Result<CloudIntelligenceStatus, String> {
     let user_key = get_user_openrouter_api_key()?;
     let config = if let Some(app_handle) = app_handle {
         load_cloud_config(app_handle)?
@@ -521,7 +1120,8 @@ fn build_cloud_intelligence_status(app_handle: Option<&AppHandle>, last_error: O
     };
 
     load_project_env_files();
-    let has_project_key = env::var("OPENROUTER_API_KEY").is_ok() || env::var("OPEN_ROUTER_API_KEY").is_ok();
+    let has_project_key =
+        env::var("OPENROUTER_API_KEY").is_ok() || env::var("OPEN_ROUTER_API_KEY").is_ok();
     let source = if user_key.is_some() {
         "user"
     } else if has_project_key {
@@ -564,6 +1164,10 @@ fn extract_json_object_slice(value: &str) -> Option<&str> {
     let start = value.find('{')?;
     let end = value.rfind('}')?;
     (end > start).then_some(&value[start..=end])
+}
+
+fn decode_response_bytes_lossy(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 fn build_folder_intelligence_prompt(request: &FolderIntelligenceRequest) -> String {
@@ -630,7 +1234,7 @@ async fn request_openrouter_folder_summary(
     };
     let model = model_override.unwrap_or_else(|| openrouter_model(app_handle));
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
         .build()
         .map_err(|error| error.to_string())?;
 
@@ -668,11 +1272,23 @@ async fn request_openrouter_folder_summary(
 
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
+        let body = response
+            .bytes()
+            .await
+            .map(|bytes| decode_response_bytes_lossy(bytes.as_ref()))
+            .unwrap_or_default();
         return Err(format_openrouter_http_error(status, &body));
     }
 
-    let payload: OpenRouterResponse = response.json().await.map_err(|error| error.to_string())?;
+    let body = response
+        .bytes()
+        .await
+        .map(|bytes| decode_response_bytes_lossy(bytes.as_ref()))
+        .map_err(|error| format!("Failed to read OpenRouter response body: {error}"))?;
+    let payload: OpenRouterResponse = serde_json::from_str(&body).map_err(|error| {
+        let body_preview = body.chars().take(240).collect::<String>();
+        format!("Failed to decode OpenRouter response body: {error}. Body preview: {body_preview}")
+    })?;
 
     let content = payload
         .choices
@@ -704,6 +1320,82 @@ async fn request_openrouter_folder_summary(
             .collect(),
         model,
     })
+}
+
+async fn request_openrouter_connection_probe(
+    app_handle: Option<&AppHandle>,
+    api_key_override: Option<String>,
+    model_override: Option<String>,
+) -> Result<(), String> {
+    let (api_key, _) = match api_key_override {
+        Some(api_key) => (api_key, "user".to_string()),
+        None => openrouter_api_key()?,
+    };
+    let model = model_override.unwrap_or_else(|| openrouter_model(app_handle));
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let mut request_builder = client
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .bearer_auth(api_key)
+        .header("Content-Type", "application/json")
+        .header("X-OpenRouter-Title", "Smart File Explorer");
+
+    if let Some(site_url) = openrouter_site_url() {
+        request_builder = request_builder.header("HTTP-Referer", site_url);
+    }
+
+    let payload = serde_json::json!({
+        "model": model,
+        "temperature": 0,
+        "max_tokens": 24,
+        "messages": [
+            {
+                "role": "user",
+                "content": "Return strict JSON only: {\"ok\":true}"
+            }
+        ]
+    });
+
+    let response = request_builder
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let status = response.status();
+    let body = response
+        .bytes()
+        .await
+        .map(|bytes| decode_response_bytes_lossy(bytes.as_ref()))
+        .map_err(|error| format!("Failed to read OpenRouter response body: {error}"))?;
+
+    if !status.is_success() {
+        return Err(format_openrouter_http_error(status, &body));
+    }
+
+    let payload: OpenRouterResponse = serde_json::from_str(&body).map_err(|error| {
+        let body_preview = body.chars().take(240).collect::<String>();
+        format!("Failed to decode OpenRouter response body: {error}. Body preview: {body_preview}")
+    })?;
+
+    let content = payload
+        .choices
+        .first()
+        .and_then(|choice| extract_openrouter_content(&choice.message.content))
+        .ok_or_else(|| "OpenRouter returned no message content".to_string())?;
+
+    let probe_payload = extract_json_object_slice(&content).unwrap_or(content.as_str());
+    let probe: OpenRouterConnectionProbe = serde_json::from_str(probe_payload)
+        .map_err(|error| format!("Failed to parse OpenRouter connection probe: {error}"))?;
+
+    if !probe.ok {
+        return Err("OpenRouter connection probe returned ok=false".to_string());
+    }
+
+    Ok(())
 }
 
 fn default_home_dir() -> Option<std::path::PathBuf> {
@@ -767,6 +1459,44 @@ fn extract_document_segments(path: String) -> Result<Vec<ExtractedSegment>, Stri
 }
 
 #[tauri::command]
+fn log_frontend_event(event: FrontendLogEvent, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut events = state.recent_frontend_events.lock().unwrap();
+        events.push_back(event.clone());
+        while events.len() > RECENT_FRONTEND_EVENT_LIMIT {
+            events.pop_front();
+        }
+    }
+
+    let payload = event
+        .data
+        .as_ref()
+        .and_then(|value| serde_json::to_string(value).ok())
+        .unwrap_or_else(|| "{}".to_string());
+    let prefix = format!("[frontend:{}:{}] ", event.area, event.event);
+    let detail = format!(
+        "{}{} correlation_id={:?} session_id={:?} path={:?} data={} error={:?}",
+        prefix,
+        event.message,
+        event.correlation_id,
+        event.session_id,
+        event.path,
+        payload,
+        event.error
+    );
+
+    match event.level.as_str() {
+        "debug" => log::debug!("{detail}"),
+        "info" => log::info!("{detail}"),
+        "warn" => log::warn!("{detail}"),
+        "error" => log::error!("{detail}"),
+        _ => log::info!("{detail}"),
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn log_frontend_message(
     level: String,
     message: String,
@@ -785,6 +1515,35 @@ fn log_frontend_message(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+fn get_diagnostic_snapshot(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<DiagnosticSnapshot, String> {
+    build_diagnostic_snapshot(&app_handle, &state)
+}
+
+#[tauri::command]
+fn export_diagnostic_bundle(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let snapshot = build_diagnostic_snapshot(&app_handle, &state)?;
+    let diagnostics_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())?
+        .join("diagnostics");
+    fs::create_dir_all(&diagnostics_dir).map_err(|error| error.to_string())?;
+    let path = diagnostics_dir.join(format!(
+        "smart-file-explorer-diagnostics-{}.json",
+        unix_timestamp_millis()
+    ));
+    let content = serde_json::to_string_pretty(&snapshot).map_err(|error| error.to_string())?;
+    fs::write(&path, content).map_err(|error| error.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -838,33 +1597,8 @@ async fn test_cloud_intelligence_connection(
         .clone()
         .map(|value| normalize_openrouter_model(&value))
         .filter(|value| !value.is_empty());
-    let request = FolderIntelligenceRequest {
-        workspace_id: "connection-test".to_string(),
-        title: "Connection Test".to_string(),
-        path: "connection-test".to_string(),
-        file_count: 1,
-        ocr_count: 0,
-        recent_count: 1,
-        primary_type_label: "Documents".to_string(),
-        project_keywords: vec!["test".to_string()],
-        summary: "Connection test".to_string(),
-        highlights: vec!["Connection test".to_string()],
-        top_files: vec![FolderIntelligenceFileContext {
-            path: "connection-test".to_string(),
-            name: "connection-test.md".to_string(),
-            group: Some("documents".to_string()),
-            subtype: Some("text".to_string()),
-            last_modified: now_timestamp_ms(),
-            is_starred: false,
-            is_likely_latest: true,
-            indexing_stage: Some("semantic".to_string()),
-            tags: vec![],
-            snippet: Some("Connection test snippet".to_string()),
-        }],
-    };
-
     let result =
-        request_openrouter_folder_summary(Some(&app_handle), &request, api_key, model.clone()).await;
+        request_openrouter_connection_probe(Some(&app_handle), api_key, model.clone()).await;
 
     match result {
         Ok(_) => {
@@ -893,7 +1627,9 @@ async fn test_cloud_intelligence_connection(
 }
 
 #[tauri::command]
-fn clear_cloud_intelligence_config(app_handle: AppHandle) -> Result<CloudIntelligenceStatus, String> {
+fn clear_cloud_intelligence_config(
+    app_handle: AppHandle,
+) -> Result<CloudIntelligenceStatus, String> {
     log::info!("Clearing cloud intelligence config");
     clear_user_openrouter_api_key()?;
     clear_cloud_config_file(&app_handle)?;
@@ -907,51 +1643,429 @@ fn get_recommended_scan_directories() -> Result<Vec<ScanDirectorySuggestion>, St
 }
 
 #[tauri::command]
+fn start_scan_session(
+    dir_paths: Vec<String>,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let normalized_paths = dir_paths
+        .into_iter()
+        .map(|path| normalize_watch_path(&path))
+        .collect::<Vec<_>>();
+
+    if normalized_paths.is_empty() {
+        return Err("No directories provided for scan session".to_string());
+    }
+
+    let session_id = format!(
+        "scan-{}",
+        state.next_scan_session_id.fetch_add(1, Ordering::SeqCst) + 1
+    );
+    let started_at = now_timestamp_ms();
+
+    for path in normalized_paths.iter() {
+        upsert_watched_folder_record(
+            &app_handle,
+            WatchedFolderRecord {
+                path: path.clone(),
+                enabled: true,
+                status: "indexing".to_string(),
+                last_scan_started_at: Some(started_at),
+                last_scan_completed_at: None,
+                last_error: None,
+            },
+        )?;
+    }
+
+    rebuild_native_watch_roots(&app_handle, &state)?;
+    state
+        .scan_sessions
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), NativeScanSessionControl::default());
+
+    log::info!(
+        "[scan-session] start session_id={} roots={:?}",
+        session_id,
+        normalized_paths
+    );
+    emit_scan_session_event(
+        &app_handle,
+        NativeScanSessionEvent {
+            event_type: "started".to_string(),
+            session_id: session_id.clone(),
+            scope: "foreground".to_string(),
+            phase: "discovering".to_string(),
+            discovered_count: 0,
+            total_known_count: 0,
+            current_path: Some(normalized_paths[0].clone()),
+            watch_path: None,
+            batch: None,
+            error: None,
+        },
+    );
+
+    let handle = app_handle.clone();
+    let scan_sessions = Arc::clone(&state.scan_sessions);
+    let roots = normalized_paths.clone();
+    let session_id_for_thread = session_id.clone();
+
+    std::thread::spawn(move || {
+        const SCAN_BATCH_SIZE: usize = 128;
+        const WALK_YIELD_EVERY: usize = 256;
+        let mut discovered_count = 0_u64;
+        let mut batch: Vec<FileMetadata> = Vec::with_capacity(SCAN_BATCH_SIZE);
+        let mut current_path = None::<String>;
+
+        let run_result = (|| -> Result<(), String> {
+            for root in roots.iter() {
+                let walker = WalkDir::new(root).into_iter();
+
+                for (index, entry) in walker
+                    .filter_entry(|entry| !is_ignored_dir(entry))
+                    .filter_map(|entry| entry.ok())
+                    .enumerate()
+                {
+                    wait_for_scan_session_turn(&scan_sessions, &session_id_for_thread)?;
+                    let path = entry.path();
+
+                    if !should_include_scanned_file(path) {
+                        continue;
+                    }
+
+                    let Some(ext) = path
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        .map(|value| value.to_lowercase())
+                    else {
+                        continue;
+                    };
+
+                    if let Ok(metadata) = entry.metadata() {
+                        let file = build_file_metadata(
+                            path,
+                            entry.file_name().to_string_lossy().into_owned(),
+                            metadata,
+                            &ext,
+                        );
+                        discovered_count += 1;
+                        current_path = Some(file.path.clone());
+                        batch.push(file);
+                    }
+
+                    if batch.len() >= SCAN_BATCH_SIZE {
+                        log::info!(
+                            "[scan-session] batch discovered session_id={} discovered={} batch={}",
+                            session_id_for_thread,
+                            discovered_count,
+                            batch.len()
+                        );
+                        emit_scan_session_event(
+                            &handle,
+                            NativeScanSessionEvent {
+                                event_type: "batch".to_string(),
+                                session_id: session_id_for_thread.clone(),
+                                scope: "foreground".to_string(),
+                                phase: "discovering".to_string(),
+                                discovered_count,
+                                total_known_count: discovered_count,
+                                current_path: current_path.clone(),
+                                watch_path: None,
+                                batch: Some(std::mem::take(&mut batch)),
+                                error: None,
+                            },
+                        );
+                    }
+
+                    if index > 0 && index % WALK_YIELD_EVERY == 0 {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            }
+
+            if !batch.is_empty() {
+                log::info!(
+                    "[scan-session] batch discovered session_id={} discovered={} batch={}",
+                    session_id_for_thread,
+                    discovered_count,
+                    batch.len()
+                );
+                emit_scan_session_event(
+                    &handle,
+                    NativeScanSessionEvent {
+                        event_type: "batch".to_string(),
+                        session_id: session_id_for_thread.clone(),
+                        scope: "foreground".to_string(),
+                        phase: "discovering".to_string(),
+                        discovered_count,
+                        total_known_count: discovered_count,
+                        current_path: current_path.clone(),
+                        watch_path: None,
+                        batch: Some(std::mem::take(&mut batch)),
+                        error: None,
+                    },
+                );
+            }
+
+            Ok(())
+        })();
+
+        match run_result {
+            Ok(()) => {
+                let completed_at = now_timestamp_ms();
+                for root in roots.iter() {
+                    let _ = upsert_watched_folder_record(
+                        &handle,
+                        WatchedFolderRecord {
+                            path: root.clone(),
+                            enabled: true,
+                            status: "watching".to_string(),
+                            last_scan_started_at: Some(started_at),
+                            last_scan_completed_at: Some(completed_at),
+                            last_error: None,
+                        },
+                    );
+                }
+
+                log::info!(
+                    "[scan-session] complete session_id={} discovered={}",
+                    session_id_for_thread,
+                    discovered_count
+                );
+                emit_scan_session_event(
+                    &handle,
+                    NativeScanSessionEvent {
+                        event_type: "completed".to_string(),
+                        session_id: session_id_for_thread.clone(),
+                        scope: "foreground".to_string(),
+                        phase: "indexing".to_string(),
+                        discovered_count,
+                        total_known_count: discovered_count,
+                        current_path,
+                        watch_path: None,
+                        batch: None,
+                        error: None,
+                    },
+                );
+            }
+            Err(error) if error == "cancelled" => {
+                log::info!(
+                    "[scan-session] cancelled session_id={}",
+                    session_id_for_thread
+                );
+                emit_scan_session_event(
+                    &handle,
+                    NativeScanSessionEvent {
+                        event_type: "cancelled".to_string(),
+                        session_id: session_id_for_thread.clone(),
+                        scope: "foreground".to_string(),
+                        phase: "finalizing".to_string(),
+                        discovered_count,
+                        total_known_count: discovered_count,
+                        current_path,
+                        watch_path: None,
+                        batch: None,
+                        error: None,
+                    },
+                );
+            }
+            Err(error) => {
+                for root in roots.iter() {
+                    let _ = upsert_watched_folder_record(
+                        &handle,
+                        WatchedFolderRecord {
+                            path: root.clone(),
+                            enabled: true,
+                            status: "error".to_string(),
+                            last_scan_started_at: Some(started_at),
+                            last_scan_completed_at: None,
+                            last_error: Some(error.clone()),
+                        },
+                    );
+                }
+
+                log::error!(
+                    "[scan-session] error session_id={} discovered={} error={}",
+                    session_id_for_thread,
+                    discovered_count,
+                    error
+                );
+                emit_scan_session_event(
+                    &handle,
+                    NativeScanSessionEvent {
+                        event_type: "error".to_string(),
+                        session_id: session_id_for_thread.clone(),
+                        scope: "foreground".to_string(),
+                        phase: "finalizing".to_string(),
+                        discovered_count,
+                        total_known_count: discovered_count,
+                        current_path,
+                        watch_path: None,
+                        batch: None,
+                        error: Some(error),
+                    },
+                );
+            }
+        }
+
+        let _ = rebuild_native_watch_roots(&handle, &handle.state::<AppState>());
+        scan_sessions.lock().unwrap().remove(&session_id_for_thread);
+    });
+
+    Ok(session_id)
+}
+
+#[tauri::command]
+fn set_scan_session_paused(
+    session_id: String,
+    paused: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut sessions = state.scan_sessions.lock().unwrap();
+    let Some(session) = sessions.get_mut(&session_id) else {
+        return Err(format!("Scan session not found: {session_id}"));
+    };
+
+    session.paused = paused;
+    log::info!(
+        "[scan-session] {} session_id={}",
+        if paused { "paused" } else { "resumed" },
+        session_id
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn inspect_scan_sessions(state: State<'_, AppState>) -> Result<Vec<ScanSessionDiagnostic>, String> {
+    let sessions = state.scan_sessions.lock().unwrap();
+    Ok(sessions
+        .iter()
+        .map(|(session_id, control)| ScanSessionDiagnostic {
+            session_id: session_id.clone(),
+            paused: control.paused,
+            cancelled: control.cancelled,
+        })
+        .collect())
+}
+
+#[tauri::command]
 fn scan_directory(
     dir_path: String,
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<FileMetadata>, String> {
-    let mut watcher_lock = state.watcher.lock().unwrap();
-    if watcher_lock.is_none() {
-        let handle = app_handle.clone();
-        let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            if let Ok(event) = res {
-                let kind_str = match event.kind {
-                    notify::EventKind::Create(_) => "create",
-                    notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => "rename",
-                    notify::EventKind::Modify(_) => "modify",
-                    notify::EventKind::Remove(_) => "remove",
-                    _ => "other",
-                };
+    let normalized_path = normalize_watch_path(&dir_path);
+    let started_at = now_timestamp_ms();
+    upsert_watched_folder_record(
+        &app_handle,
+        WatchedFolderRecord {
+            path: normalized_path.clone(),
+            enabled: true,
+            status: "indexing".to_string(),
+            last_scan_started_at: Some(started_at),
+            last_scan_completed_at: None,
+            last_error: None,
+        },
+    )?;
+    let files = collect_scannable_files(&normalized_path);
 
-                if kind_str != "other" {
-                    for path in event.paths {
-                        if let Some(p) = path.to_str() {
-                            let _ = handle.emit(
-                                "sys-file-event",
-                                FileEventPayload {
-                                    kind: kind_str.to_string(),
-                                    path: p.to_string(),
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-        })
-        .map_err(|e| e.to_string())?;
-
-        *watcher_lock = Some(watcher);
+    match files {
+        Ok(files) => {
+            upsert_watched_folder_record(
+                &app_handle,
+                WatchedFolderRecord {
+                    path: normalized_path,
+                    enabled: true,
+                    status: "watching".to_string(),
+                    last_scan_started_at: Some(started_at),
+                    last_scan_completed_at: Some(now_timestamp_ms()),
+                    last_error: None,
+                },
+            )?;
+            rebuild_native_watch_roots(&app_handle, &state)?;
+            Ok(files)
+        }
+        Err(error) => {
+            upsert_watched_folder_record(
+                &app_handle,
+                WatchedFolderRecord {
+                    path: normalized_path,
+                    enabled: true,
+                    status: "error".to_string(),
+                    last_scan_started_at: Some(started_at),
+                    last_scan_completed_at: None,
+                    last_error: Some(error.clone()),
+                },
+            )?;
+            rebuild_native_watch_roots(&app_handle, &state)?;
+            Err(error)
+        }
     }
+}
 
-    if let Some(watcher) = watcher_lock.as_mut() {
-        watcher
-            .watch(Path::new(&dir_path), RecursiveMode::Recursive)
-            .map_err(|e| e.to_string())?;
-    }
+#[tauri::command]
+fn load_watched_folders(app_handle: AppHandle) -> Result<Vec<WatchedFolderRecord>, String> {
+    load_watched_folder_records(&app_handle)
+}
 
-    collect_scannable_files(&dir_path)
+#[tauri::command]
+fn save_watched_folder(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    folder: WatchedFolderRecord,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    upsert_watched_folder_record(&app_handle, folder)?;
+    rebuild_native_watch_roots(&app_handle, &state)
+}
+
+#[tauri::command]
+fn set_watched_folder_enabled(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    enabled: bool,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    update_watched_folder_enabled(&app_handle, &path, enabled)?;
+    rebuild_native_watch_roots(&app_handle, &state)
+}
+
+#[tauri::command]
+fn remove_watched_folder_native(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    remove_watched_folder_record(&app_handle, &path)?;
+    rebuild_native_watch_roots(&app_handle, &state)
+}
+
+#[tauri::command]
+fn start_native_watchers(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<WatchedFolderRecord>, String> {
+    rebuild_native_watch_roots(&app_handle, &state)
+}
+
+#[tauri::command]
+fn inspect_native_watch_state(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<NativeWatchStateSnapshot, String> {
+    let watched_folders = load_watched_folder_records(&app_handle)?;
+    let active_roots = state
+        .watch_manager
+        .lock()
+        .unwrap()
+        .active_roots
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+    Ok(NativeWatchStateSnapshot {
+        watched_folders,
+        active_roots,
+    })
 }
 
 #[tauri::command]
@@ -1139,6 +2253,33 @@ mod tests {
     }
 
     #[test]
+    fn legacy_doc_files_are_treated_as_supported_metadata_only_documents() {
+        let root = unique_temp_dir("extract-doc");
+        fs::create_dir_all(&root).unwrap();
+        let file_path = root.join("proposal.doc");
+        fs::write(&file_path, b"\xd0\xcf\x11\xe0legacy-doc").unwrap();
+
+        assert!(should_emit_watched_file_event(&file_path));
+
+        let segments = extract_document_segments(file_path.to_string_lossy().into_owned()).unwrap();
+        assert!(segments.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn temporary_downloads_are_excluded_from_watch_events() {
+        let root = unique_temp_dir("temp-downloads");
+        fs::create_dir_all(&root).unwrap();
+        let file_path = root.join("proposal.doc.crdownload");
+        fs::write(&file_path, "partial").unwrap();
+
+        assert!(!should_emit_watched_file_event(&file_path));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn recommended_scan_directories_prefers_existing_productivity_folders() {
         let root = unique_temp_dir("starter-folders");
         fs::create_dir_all(root.join("Documents")).unwrap();
@@ -1177,6 +2318,29 @@ mod tests {
 
         assert!(message.contains("HTTP 404"));
         assert!(message.contains("No route found for model"));
+    }
+
+    #[test]
+    fn normalize_openrouter_api_key_accepts_bearer_prefixed_values() {
+        assert_eq!(
+            normalize_openrouter_api_key("Bearer sk-or-v1-abc123"),
+            "sk-or-v1-abc123"
+        );
+        assert_eq!(
+            normalize_openrouter_api_key(" bearer sk-or-v1-abc123 "),
+            "sk-or-v1-abc123"
+        );
+        assert_eq!(
+            normalize_openrouter_api_key("'Bearer sk-or-v1-abc123'"),
+            "sk-or-v1-abc123"
+        );
+    }
+
+    #[test]
+    fn decode_response_bytes_lossy_handles_invalid_utf8() {
+        let decoded = decode_response_bytes_lossy(&[0x66, 0x6f, 0x80, 0x6f]);
+        assert!(decoded.starts_with("fo"));
+        assert!(decoded.ends_with('o'));
     }
 
     fn minimal_pdf_bytes(text: &str) -> Vec<u8> {
@@ -1230,7 +2394,15 @@ pub fn run() {
         })
         .setup(|app| {
             app.manage(AppState {
-                watcher: Mutex::new(None),
+                watch_manager: Mutex::new(WatchManagerState {
+                    watcher: None,
+                    active_roots: Vec::new(),
+                }),
+                debounce_tokens: Arc::new(Mutex::new(HashMap::new())),
+                next_debounce_token: Arc::new(AtomicU64::new(0)),
+                scan_sessions: Arc::new(Mutex::new(HashMap::new())),
+                next_scan_session_id: Arc::new(AtomicU64::new(0)),
+                recent_frontend_events: Mutex::new(VecDeque::new()),
             });
 
             use tauri::Manager;
@@ -1274,23 +2446,33 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            start_scan_session,
+            set_scan_session_paused,
+            inspect_scan_sessions,
             scan_directory,
+            load_watched_folders,
+            save_watched_folder,
+            set_watched_folder_enabled,
+            remove_watched_folder_native,
+            start_native_watchers,
+            inspect_native_watch_state,
             get_recommended_scan_directories,
             open_file_native,
             get_file_metadata,
             extract_text_content,
             extract_document_segments,
+            log_frontend_event,
             log_frontend_message,
+            get_diagnostic_snapshot,
+            export_diagnostic_bundle,
             generate_folder_intelligence_summary,
             get_cloud_intelligence_status,
             save_cloud_intelligence_config,

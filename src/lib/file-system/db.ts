@@ -42,6 +42,17 @@ export interface WorkspaceAiSummaryRecord {
     updatedAt: number;
 }
 
+export type WatchedFolderStatus = 'idle' | 'watching' | 'indexing' | 'paused' | 'error';
+
+export interface WatchedFolderRecord {
+    path: string;
+    enabled: boolean;
+    status: WatchedFolderStatus;
+    lastScanStartedAt?: number;
+    lastScanCompletedAt?: number;
+    lastError?: string;
+}
+
 interface SmartFileExplorerDB extends DBSchema {
     files: {
         key: string;
@@ -57,10 +68,14 @@ interface SmartFileExplorerDB extends DBSchema {
         key: string;
         value: WorkspaceAiSummaryRecord;
     };
+    watchedFolders: {
+        key: string;
+        value: WatchedFolderRecord;
+    };
 }
 
 const DB_NAME = 'smart-file-explorer-db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let dbPromise: Promise<IDBPDatabase<SmartFileExplorerDB>>;
 
@@ -87,6 +102,9 @@ export const getDB = () => {
                 }
                 if (oldVersion < 5) {
                     db.createObjectStore('workspaceAiSummaries', { keyPath: 'workspaceId' });
+                }
+                if (oldVersion < 6) {
+                    db.createObjectStore('watchedFolders', { keyPath: 'path' });
                 }
             },
         });
@@ -146,6 +164,52 @@ export const getAllChunks = async () => {
 export const storeWorkspaceAiSummary = async (summary: WorkspaceAiSummaryRecord) => {
     const db = await getDB();
     await db.put('workspaceAiSummaries', summary);
+};
+
+export const getWatchedFolders = async () => {
+    const db = await getDB();
+    const folders = await db.getAll('watchedFolders');
+    return folders.sort((a, b) => a.path.localeCompare(b.path));
+};
+
+export const saveWatchedFolder = async (folder: WatchedFolderRecord) => {
+    const db = await getDB();
+    await db.put('watchedFolders', folder);
+};
+
+export const setWatchedFolderEnabled = async (path: string, enabled: boolean) => {
+    const db = await getDB();
+    const existing = await db.get('watchedFolders', path);
+    if (!existing) {
+        return;
+    }
+
+    await db.put('watchedFolders', {
+        ...existing,
+        enabled,
+        status: enabled ? existing.status : 'paused',
+    });
+};
+
+export const setWatchedFolderStatus = async (
+    path: string,
+    updates: Partial<Pick<WatchedFolderRecord, 'status' | 'lastScanStartedAt' | 'lastScanCompletedAt' | 'lastError'>>
+) => {
+    const db = await getDB();
+    const existing = await db.get('watchedFolders', path);
+    if (!existing) {
+        return;
+    }
+
+    await db.put('watchedFolders', {
+        ...existing,
+        ...updates,
+    });
+};
+
+export const removeWatchedFolder = async (path: string) => {
+    const db = await getDB();
+    await db.delete('watchedFolders', path);
 };
 
 export const getWorkspaceAiSummary = async (workspaceId: string) => {
@@ -219,6 +283,7 @@ export const clearDatabase = async () => {
     await db.clear('files');
     await db.clear('chunks');
     await db.clear('workspaceAiSummaries');
+    await db.clear('watchedFolders');
 }
 
 export const deleteFile = async (path: string) => {

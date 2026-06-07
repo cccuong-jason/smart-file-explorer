@@ -20,6 +20,7 @@ test('translation dictionaries include keys required by the main unfinished UI s
   const requiredKeys = [
     'general',
     'privacy',
+    'diagnostics',
     'settings_subtitle',
     'shortcut_title',
     'shortcut_description',
@@ -33,6 +34,26 @@ test('translation dictionaries include keys required by the main unfinished UI s
     'privacy_export_description',
     'privacy_export_cta',
     'privacy_exporting',
+    'diagnostics_title',
+    'diagnostics_description',
+    'diagnostics_refresh',
+    'diagnostics_copy_summary',
+    'diagnostics_export_bundle',
+    'diagnostics_exporting',
+    'diagnostics_exported',
+    'diagnostics_export_unavailable',
+    'diagnostics_summary_copied',
+    'diagnostics_clear_events',
+    'diagnostics_cleared',
+    'diagnostics_events',
+    'diagnostics_watch_roots',
+    'diagnostics_native_logs',
+    'diagnostics_log_path',
+    'diagnostics_not_available',
+    'diagnostics_recent_events',
+    'diagnostics_filter_level',
+    'diagnostics_filter_area',
+    'diagnostics_empty',
     'privacy_reset_title',
     'privacy_reset_description',
     'privacy_reset_warning',
@@ -47,6 +68,7 @@ test('translation dictionaries include keys required by the main unfinished UI s
     'toggle_language',
     'language_vi',
     'language_en',
+    'tree_view',
     'sort_ascending',
     'sort_descending',
     'preview_empty_title',
@@ -151,7 +173,11 @@ test('affected shared UI components include dark mode styling hooks', () => {
 
   for (const file of themedFiles) {
     const content = read(file);
-    assert.match(content, /dark:/, `${file} is missing dark mode styling hooks`);
+    assert.match(
+      content,
+      /dark:|bg-card|bg-secondary|text-muted-foreground|border-border/,
+      `${file} is missing dark mode styling hooks or shared theme tokens`
+    );
   }
 });
 
@@ -161,8 +187,77 @@ test('main page includes inline toolbar controls for theme and language instead 
 
   assert.match(page, /toggle_theme/, 'Main toolbar should expose a theme toggle control');
   assert.match(page, /toggle_language/, 'Main toolbar should expose a language toggle control');
+  assert.match(page, /tree_view/, 'Main toolbar should expose a tree view toggle control');
   assert.equal(settings.includes("t('language')"), false, 'Settings modal should no longer render the language selector');
   assert.equal(settings.includes("t('theme')"), false, 'Settings modal should no longer render the theme selector');
+});
+
+test('main tree view opens as a full folder and file hierarchy', () => {
+  const page = read('src/app/page.tsx');
+
+  assert.match(
+    page,
+    /<TreeView[\s\S]*nodes=\{treeViewNodes\}[\s\S]*expandAll/,
+    'Main tree view should expand the full folder and file hierarchy'
+  );
+});
+
+test('tray activity window can receive native watch events while the main window is hidden', () => {
+  const page = read('src/app/tray-activity/page.tsx');
+  const main = read('src/app/page.tsx');
+  const capability = readJson('src-tauri/capabilities/default.json');
+
+  assert.match(
+    page,
+    /listen<\{ kind: string; path: string \}>\('sys-file-event'/,
+    'Tray activity should listen directly for native file watcher events'
+  );
+  assert.ok(
+    capability.windows.includes('tray-activity'),
+    'Tray activity must be included in the Tauri capability windows so event.listen is allowed'
+  );
+  assert.doesNotMatch(
+    page,
+    /getIndexingCoordinator|getFile|getWatchedFolders|resolveWatchedFileMetadata|deleteFile/,
+    'Tray activity should stay lightweight and must not import the indexing/database stack'
+  );
+  assert.match(
+    main,
+    /createTrayActivityDetected[\s\S]*indexingCoordinator\.enqueue/,
+    'Main watcher should show a tray detected state before background indexing can complete'
+  );
+});
+
+test('async Tauri event listeners guard cleanup during development remounts', () => {
+  const main = read('src/app/page.tsx');
+  const tray = read('src/app/tray-activity/page.tsx');
+
+  assert.match(
+    main,
+    /createAsyncUnlistenGuard/,
+    'Main window watch listeners should guard async listen cleanup to avoid duplicate dev listeners'
+  );
+  assert.match(
+    tray,
+    /createAsyncUnlistenGuard/,
+    'Tray activity listeners should guard async listen cleanup to avoid duplicate dev listeners'
+  );
+});
+
+test('diagnostics feature exposes structured logging and native bundle commands', () => {
+  const logger = read('src/lib/telemetry/logger.ts');
+  const diagnostics = read('src/lib/telemetry/diagnostics.ts');
+  const settings = read('src/components/settings/settings-modal.tsx');
+  const native = read('src-tauri/src/lib.rs');
+  const main = read('src/app/page.tsx');
+
+  assert.match(logger, /export async function logEvent/, 'Frontend should expose structured logEvent');
+  assert.match(diagnostics, /getDiagnosticSnapshot/, 'Frontend should expose diagnostic snapshots');
+  assert.match(settings, /activeTab === 'diagnostics'/, 'Settings should render diagnostics tab content');
+  assert.match(native, /fn log_frontend_event/, 'Native app should accept structured frontend events');
+  assert.match(native, /fn export_diagnostic_bundle/, 'Native app should export diagnostic bundles');
+  assert.match(native, /native_log_files/, 'Native diagnostic bundles should include recent native log file tails');
+  assert.match(main, /area: 'watch'[\s\S]*event: 'native-event\.received'/, 'Watch flow should log native event receipt');
 });
 
 test('global styles include custom scrollbar styling for dark mode surfaces', () => {
@@ -171,4 +266,14 @@ test('global styles include custom scrollbar styling for dark mode surfaces', ()
   assert.match(globals, /::-webkit-scrollbar/, 'Globals should style webkit scrollbars');
   assert.match(globals, /scrollbar-color:/, 'Globals should style Firefox scrollbars');
   assert.match(globals, /dark/, 'Scrollbar styling should account for dark surfaces');
+});
+
+test('global styles define a class-based dark variant so the app theme toggle controls dark surfaces', () => {
+  const globals = read('src/app/globals.css');
+
+  assert.match(
+    globals,
+    /@custom-variant\s+dark/,
+    'Globals should override Tailwind dark styles to follow the app dark class'
+  );
 });

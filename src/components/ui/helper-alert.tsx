@@ -1,6 +1,8 @@
 import { AlertCircle, X } from 'lucide-react';
 import { useState } from 'react';
 
+import { Button } from '@/components/retroui/Button';
+
 interface HelperAlertProps {
     title: string;
     message: string;
@@ -14,24 +16,26 @@ export function HelperAlert({ title, message, onDismiss, className = '' }: Helpe
     if (!isVisible) return null;
 
     return (
-        <div className={`bg-amber-50 border border-amber-200 rounded-lg p-3 relative ${className}`}>
+        <div className={`relative rounded-md border-2 border-border bg-secondary p-3 shadow ${className}`}>
             <div className="flex gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-foreground" />
                 <div className="flex-1">
-                    <h4 className="text-sm font-semibold text-amber-800 mb-1">{title}</h4>
-                    <p className="text-xs text-amber-700 leading-relaxed">
+                    <h4 className="mb-1 font-head text-sm text-foreground">{title}</h4>
+                    <p className="text-xs leading-relaxed text-foreground/80">
                         {message}
                     </p>
                 </div>
-                <button
+                <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => {
                         setIsVisible(false);
                         onDismiss?.();
                     }}
-                    className="text-amber-400 hover:text-amber-600 transition-colors"
+                    className="h-7 w-7 border-0 shadow-none hover:translate-y-0 active:translate-x-0 active:translate-y-0"
                 >
-                    <X className="w-4 h-4" />
-                </button>
+                    <X className="h-4 w-4" />
+                </Button>
             </div>
         </div>
     );

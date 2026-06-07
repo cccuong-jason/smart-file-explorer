@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ArrowRight, Clock3, FolderKanban, ScanSearch, Star, Files } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import type { FolderInsight } from '@/lib/folder-intelligence/workspaces';
+import { Button } from '@/components/retroui/Button';
 
 interface FolderIntelligencePanelProps {
   insights: FolderInsight[];
@@ -65,23 +66,25 @@ export function FolderIntelligencePanel({ insights, onOpenFile, onRefreshSummary
   const showExpandedDetails = expanded || insights.length === 1;
 
   return (
-    <section className="border-b border-[var(--ui-border)] bg-[var(--ui-surface)] px-6 py-4">
+    <section className="border-b-2 border-border bg-card px-6 py-4 text-card-foreground">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-[var(--ui-primary)]">
+          <div className="flex items-center gap-2 text-primary">
             <FolderKanban className="h-4 w-4" />
-            <h2 className="text-sm font-bold uppercase tracking-wider">{t('folder_intelligence_title')}</h2>
+            <h2 className="font-head text-sm font-bold uppercase">{t('folder_intelligence_title')}</h2>
           </div>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('folder_intelligence_description')}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t('folder_intelligence_description')}</p>
         </div>
         {insights.length > 1 && (
-          <button
+          <Button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--ui-primary)] transition-colors hover:bg-[var(--ui-primary-soft)]"
+            variant="outline"
+            size="sm"
+            className="bg-card text-xs"
           >
             {expanded ? t('folder_intelligence_show_less') : t('folder_intelligence_show_more')}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -89,55 +92,57 @@ export function FolderIntelligencePanel({ insights, onOpenFile, onRefreshSummary
         {visibleInsights.map((insight) => (
           <div
             key={insight.id}
-            className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 shadow-sm"
+            className="rounded border-2 border-border bg-card p-4 shadow-sm"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="truncate text-base font-semibold text-gray-900 dark:text-gray-100">{insight.title}</h3>
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                  <h3 className="truncate font-head text-base font-semibold text-foreground">{insight.title}</h3>
+                  <span className={`rounded border-2 px-2 py-0.5 font-head text-[10px] font-bold uppercase ${
                     insight.summaryState === 'failed'
                       ? 'border-[color:var(--ui-danger)]/30 bg-[var(--ui-danger-soft)] text-[var(--ui-danger)]'
                       : insight.summaryState === 'generating'
                         ? 'border-[color:var(--ui-warning)]/30 bg-[var(--ui-warning-soft)] text-[var(--ui-warning)]'
                         : insight.summarySource === 'ai'
                           ? 'border-[color:var(--ui-success)]/30 bg-[var(--ui-success-soft)] text-[var(--ui-success)]'
-                          : 'border-[var(--ui-border)] bg-[var(--ui-surface-muted)] text-gray-600 dark:text-gray-300'
+                          : 'border-border bg-secondary text-foreground'
                   }`}>
                     {getSummaryBadgeLabel(insight)}
                   </span>
                 </div>
-                <p className="mt-1 truncate text-xs text-gray-400 dark:text-gray-500">{insight.path}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{insight.path}</p>
               </div>
-              <span className="shrink-0 rounded-full border border-[var(--ui-border)] bg-[var(--ui-primary-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--ui-primary)]">
+              <span className="shrink-0 rounded border-2 border-border bg-primary px-2.5 py-1 font-head text-[11px] font-semibold text-primary-foreground">
                 {getTypeLabel(insight.primaryTypeLabel)}
               </span>
             </div>
 
-            <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+            <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
               {insight.summary}
             </p>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {insight.summarySource === 'ai' && insight.summaryModel && (
-                <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-2 py-0.5 font-mono text-[10px] text-gray-700 dark:text-gray-200">
+                <span className="rounded border-2 border-border bg-secondary px-2 py-0.5 font-mono text-[10px] text-foreground">
                   {insight.summaryModel}
                 </span>
               )}
               {insight.summaryUpdatedAt && (
-                <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-2 py-0.5 text-[10px] text-gray-600 dark:text-gray-300">
+                <span className="rounded border-2 border-border bg-secondary px-2 py-0.5 text-[10px] text-foreground">
                   {new Date(insight.summaryUpdatedAt).toLocaleDateString()}
                 </span>
               )}
               {onRefreshSummary && (
-                <button
+                <Button
                   type="button"
                   onClick={() => onRefreshSummary(insight.id)}
-                  className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-2 py-0.5 text-[10px] font-semibold text-gray-700 transition-colors hover:bg-[var(--ui-primary-soft)] dark:text-gray-200"
+                  variant="outline"
+                  size="sm"
+                  className="bg-card py-0.5 text-[10px]"
                   aria-label={t('folder_intelligence_refresh_ai_summary')}
                 >
                   {t('folder_intelligence_refresh_ai_summary')}
-                </button>
+                </Button>
               )}
             </div>
 
@@ -146,7 +151,7 @@ export function FolderIntelligencePanel({ insights, onOpenFile, onRefreshSummary
                 {insight.highlights.slice(0, 2).map((highlight) => (
                   <span
                     key={highlight}
-                    className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-2.5 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-300"
+                    className="rounded border-2 border-border bg-secondary px-2.5 py-1 text-[11px] font-medium text-foreground"
                   >
                     {highlight}
                   </span>
@@ -155,14 +160,14 @@ export function FolderIntelligencePanel({ insights, onOpenFile, onRefreshSummary
             )}
 
             {showExpandedDetails && insight.rationale && insight.rationale.length > 0 && (
-              <p className="mt-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
                 {insight.rationale[0]}
               </p>
             )}
 
-            <div className="mt-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+            <div className="mt-3 rounded border-2 border-border bg-secondary p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                <p className="font-head text-xs font-bold uppercase text-muted-foreground">
                   {t('folder_intelligence_top_file')}
                 </p>
                 {insight.topFile.isStarred && (
@@ -177,8 +182,8 @@ export function FolderIntelligencePanel({ insights, onOpenFile, onRefreshSummary
                 className="mt-2 flex w-full items-center justify-between gap-3 text-left"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{insight.topFile.name}</p>
-                  <div className="mt-1 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="truncate text-sm font-semibold text-foreground">{insight.topFile.name}</p>
+                  <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       <Clock3 className="h-3.5 w-3.5" />
                       {t('folder_intelligence_files', { count: insight.fileCount })}
@@ -191,13 +196,13 @@ export function FolderIntelligencePanel({ insights, onOpenFile, onRefreshSummary
                     )}
                   </div>
                 </div>
-                <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" />
+                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               </button>
             </div>
 
             {showExpandedDetails && insight.versionGroups.length > 0 && (
-              <div className="mt-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--ui-warning)]">
+              <div className="mt-3 rounded border-2 border-border bg-secondary p-3">
+                <div className="flex items-center gap-2 font-head text-xs font-bold uppercase text-[var(--ui-warning)]">
                   <Files className="h-3.5 w-3.5" />
                   {t('folder_intelligence_latest_group')}
                 </div>
@@ -207,7 +212,7 @@ export function FolderIntelligencePanel({ insights, onOpenFile, onRefreshSummary
                   className="mt-2 flex w-full items-center justify-between gap-3 text-left"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    <p className="truncate text-sm font-semibold text-foreground">
                       {insight.versionGroups[0].latestFile.name}
                     </p>
                     <p className="mt-1 text-xs text-[var(--ui-warning)]">

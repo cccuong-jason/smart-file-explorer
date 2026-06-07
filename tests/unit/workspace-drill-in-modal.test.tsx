@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '@/lib/i18n';
 import { WorkspaceDrillInModal } from '@/components/folder-intelligence/workspace-drill-in-modal';
+import type { TreeFolderNode } from '@/lib/file-browser/tree-view';
 
 const insight = {
   id: 'workspace-1',
@@ -96,8 +97,53 @@ const insight = {
   workspaceScore: 12,
 };
 
+const workspaceTree: TreeFolderNode[] = [
+  {
+    kind: 'folder',
+    id: 'workspace-root',
+    name: 'Q2',
+    path: 'C:/Users/jason/Documents/Acme/Q2',
+    isRoot: true,
+    children: [
+      {
+        kind: 'folder',
+        id: 'workspace-root/contracts',
+        name: 'contracts',
+        path: 'C:/Users/jason/Documents/Acme/Q2/contracts',
+        isRoot: false,
+        children: [
+          {
+            kind: 'file',
+            id: 'contract-draft',
+            name: 'contract-draft.docx',
+            path: 'C:/Users/jason/Documents/Acme/Q2/contracts/contract-draft.docx',
+            file: {
+              path: 'C:/Users/jason/Documents/Acme/Q2/contracts/contract-draft.docx',
+              name: 'contract-draft.docx',
+              size: 100,
+              lastModified: Date.now() - 30_000,
+            },
+          },
+        ],
+      },
+      {
+        kind: 'file',
+        id: 'proposal-final',
+        name: 'proposal-final.docx',
+        path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
+        file: {
+          path: 'C:/Users/jason/Documents/Acme/Q2/proposal-final.docx',
+          name: 'proposal-final.docx',
+          size: 100,
+          lastModified: Date.now(),
+        },
+      },
+    ],
+  },
+];
+
 describe('WorkspaceDrillInModal', () => {
-  it('renders a workspace drill-in with important documents, versions, and recent changes', async () => {
+  it('renders a workspace drill-in with the full file tree, versions, and recent changes', async () => {
     localStorage.setItem('i18n_lang', 'en');
     const onOpenFile = vi.fn();
     const user = userEvent.setup();
@@ -107,6 +153,7 @@ describe('WorkspaceDrillInModal', () => {
         <WorkspaceDrillInModal
           isOpen
           insight={insight}
+          workspaceTreeNodes={workspaceTree}
           isPinned={false}
           onClose={vi.fn()}
           onOpenFile={onOpenFile}
@@ -116,7 +163,9 @@ describe('WorkspaceDrillInModal', () => {
     );
 
     expect(screen.getByText(/proposal-final\.docx looks like the primary document/i)).toBeInTheDocument();
-    expect(screen.getByText(/important documents/i)).toBeInTheDocument();
+    expect(screen.getByText(/file tree/i)).toBeInTheDocument();
+    expect(screen.getByText(/contracts/i)).toBeInTheDocument();
+    expect(screen.getByText(/contract-draft\.docx/i)).toBeInTheDocument();
     expect(screen.getByText(/version groups/i)).toBeInTheDocument();
     expect(screen.getByText(/recent changes/i)).toBeInTheDocument();
     expect(screen.getByText(/OCR attention/i)).toBeInTheDocument();
@@ -135,6 +184,8 @@ describe('WorkspaceDrillInModal', () => {
         <WorkspaceDrillInModal
           isOpen
           insight={insight}
+          workspaceTreeNodes={workspaceTree}
+          selectedPath="C:/Users/jason/Documents/Acme/Q2/proposal-final.docx"
           isPinned={false}
           onClose={vi.fn()}
           onOpenFile={onOpenFile}
@@ -163,6 +214,7 @@ describe('WorkspaceDrillInModal', () => {
         <WorkspaceDrillInModal
           isOpen
           insight={insight}
+          workspaceTreeNodes={workspaceTree}
           isPinned={false}
           onClose={onClose}
           onOpenFile={vi.fn()}
@@ -181,5 +233,48 @@ describe('WorkspaceDrillInModal', () => {
     }
 
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the pin action in the bottom-right footer with a pressed state', () => {
+    localStorage.setItem('i18n_lang', 'en');
+
+    render(
+      <I18nProvider>
+        <WorkspaceDrillInModal
+          isOpen
+          insight={insight}
+          workspaceTreeNodes={workspaceTree}
+          isPinned
+          onClose={vi.fn()}
+          onOpenFile={vi.fn()}
+          onTogglePin={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    const footer = screen.getByTestId('workspace-pin-footer');
+    expect(footer).toHaveClass('justify-end');
+    expect(screen.getByRole('button', { name: /unpin item/i })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('localizes the workspace summary in Vietnamese', () => {
+    localStorage.setItem('i18n_lang', 'vi');
+
+    render(
+      <I18nProvider>
+        <WorkspaceDrillInModal
+          isOpen
+          insight={insight}
+          workspaceTreeNodes={workspaceTree}
+          isPinned={false}
+          onClose={vi.fn()}
+          onOpenFile={vi.fn()}
+          onTogglePin={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    expect(screen.getByText(/proposal-final\.docx là tài liệu nên mở đầu tiên trong Q2/i)).toBeInTheDocument();
+    expect(screen.queryByText(/looks like the primary document/i)).not.toBeInTheDocument();
   });
 });

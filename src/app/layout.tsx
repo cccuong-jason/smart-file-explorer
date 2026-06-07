@@ -1,6 +1,7 @@
 import './globals.css';
 import { ToastProvider } from '@/components/ui/toast';
 import { GlobalShortcutProvider } from '@/components/layout/global-shortcut-provider';
+import { AppMonitoring } from '@/components/telemetry/app-monitoring';
 import { I18nProvider } from '@/lib/i18n';
 import { ThemeProvider } from '@/lib/theme-provider';
 
@@ -23,6 +24,7 @@ export default function AppProviders({
     <ThemeProvider>
       <I18nProvider>
         <ToastProvider>
+          <AppMonitoring />
           <GlobalShortcutProvider />
           {children}
         </ToastProvider>

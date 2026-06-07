@@ -12,9 +12,9 @@ import { getMatchPercentage } from '@/lib/search/presentation';
 function FileIcon({ name }: { name: string }) {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   if (['js', 'ts', 'jsx', 'tsx', 'py', 'json', 'css', 'html', 'rs', 'go', 'rb', 'php'].includes(ext)) {
-    return <FileCode className="w-4 h-4 text-indigo-500 shrink-0" />;
+    return <FileCode className="h-4 w-4 shrink-0 text-primary" />;
   }
-  return <FileText className="w-4 h-4 text-gray-400 shrink-0" />;
+  return <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />;
 }
 
 async function hideSpotlight() {
@@ -36,20 +36,29 @@ export default function SpotlightPage() {
 
   // Reset & focus when the window gains focus
   useEffect(() => {
-    const appWindow = getCurrentWindow();
-    const unlistenPromise = appWindow.onFocusChanged(({ payload: focused }) => {
-      if (focused) {
-        setQuery('');
-        setResults([]);
-        setSelectedIndex(0);
-        setIsLoading(false);
-        setTimeout(() => inputRef.current?.focus(), 50);
-      } else {
-        hideSpotlight();
-      }
-    });
+    let unlistenPromise: ReturnType<ReturnType<typeof getCurrentWindow>['onFocusChanged']> | null = null;
+
+    try {
+      const appWindow = getCurrentWindow();
+      unlistenPromise = appWindow.onFocusChanged(({ payload: focused }) => {
+        if (focused) {
+          setQuery('');
+          setResults([]);
+          setSelectedIndex(0);
+          setIsLoading(false);
+          setTimeout(() => inputRef.current?.focus(), 50);
+        } else {
+          hideSpotlight();
+        }
+      });
+    } catch (error) {
+      console.warn('Spotlight focus bridge unavailable outside Tauri', error);
+    }
+
     setTimeout(() => inputRef.current?.focus(), 100);
-    return () => { unlistenPromise.then((fn) => fn()); };
+    return () => {
+      unlistenPromise?.then((fn) => fn()).catch(() => undefined);
+    };
   }, []);
 
   // Keyboard navigation
@@ -95,18 +104,18 @@ export default function SpotlightPage() {
   return (
     // No padding, no min-height — card is the only visual element in the transparent window
     <div className="w-full bg-transparent">
-      <div className="w-full shadow-2xl overflow-hidden bg-white dark:bg-gray-900 border border-white/70 dark:border-gray-800">
+      <div className="w-full overflow-hidden border-2 border-border bg-card text-card-foreground shadow-md">
 
         {/* ─── Search Bar ─── */}
-        <div className="flex items-center px-4 py-3.5 gap-3 border-b border-gray-100 dark:border-gray-800">
+        <div className="flex items-center gap-3 border-b-2 border-border bg-card px-4 py-3.5">
           {isLoading
-            ? <Loader2 className="w-5 h-5 text-indigo-500 shrink-0 animate-spin" />
-            : <Search className="w-5 h-5 text-indigo-400 shrink-0" />
+            ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
+            : <Search className="h-5 w-5 shrink-0 text-primary" />
           }
           <input
             ref={inputRef}
             type="text"
-            className="flex-1 bg-transparent text-[17px] text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder:text-gray-500 focus:outline-none font-medium"
+            className="flex-1 bg-transparent text-[17px] font-medium text-foreground placeholder:text-muted-foreground focus:outline-none"
             placeholder={t('spotlight_placeholder')}
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
@@ -116,7 +125,7 @@ export default function SpotlightPage() {
           {query && (
             <button
               onClick={() => handleQueryChange('')}
-              className="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-300 transition-colors"
+              className="text-muted-foreground transition-colors hover:text-foreground"
             >
               <X className="w-4 h-4" />
             </button>
@@ -127,9 +136,9 @@ export default function SpotlightPage() {
         {hasResults && (
           <>
             {/* Section header */}
-            <div className="px-4 py-1.5 flex items-center justify-between bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-800">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">{t('spotlight_best_matches')}</span>
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
+            <div className="flex items-center justify-between border-b-2 border-border bg-secondary px-4 py-1.5">
+              <span className="font-head text-[10px] font-bold uppercase text-muted-foreground">{t('spotlight_best_matches')}</span>
+              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <ArrowUpDown className="w-2.5 h-2.5" /> {t('spotlight_navigate')}
               </span>
             </div>
@@ -142,10 +151,10 @@ export default function SpotlightPage() {
                 <div
                   key={res.file.path}
                   className={clsx(
-                    'px-4 py-2.5 flex items-center gap-3 cursor-pointer border-l-[3px] transition-colors duration-75',
+                    'flex cursor-pointer items-center gap-3 border-l-4 px-4 py-2.5 transition-colors duration-75',
                     isSelected
-                      ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-500'
-                      : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'border-primary bg-secondary'
+                      : 'border-transparent hover:bg-secondary'
                   )}
                   onMouseEnter={() => setSelectedIndex(idx)}
                   onClick={async () => {
@@ -153,45 +162,45 @@ export default function SpotlightPage() {
                   }}
                 >
                   {/* Icon: always solid white bg so row colour doesn't bleed through */}
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 shadow-sm">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border-2 border-border bg-card shadow-sm">
                     <FileIcon name={res.file.name} />
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <p className={clsx('text-sm font-semibold truncate', isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-900 dark:text-gray-100')}>
+                    <p className={clsx('truncate text-sm font-semibold', isSelected ? 'text-primary' : 'text-foreground')}>
                       {res.file.name}
                     </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {res.locationLabel ? `${res.locationLabel} · ${dir}` : dir}
                     </p>
                   </div>
 
                   {(res.isLikelyLatest || typeof res.score === 'number') && (
-                    <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full shrink-0 border border-emerald-100 dark:border-emerald-900">
+                    <span className="shrink-0 rounded border-2 border-border bg-[var(--ui-success-soft)] px-1.5 py-0.5 font-head text-[10px] font-semibold text-[var(--ui-success)]">
                       {res.isLikelyLatest ? t('likely_latest_version') : `${getMatchPercentage(res.score)}%`}
                     </span>
                   )}
 
                   {isSelected && (
-                    <kbd className="text-[10px] text-indigo-400 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 rounded px-1.5 py-0.5 shrink-0">↵</kbd>
+                    <kbd className="shrink-0 rounded border-2 border-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-primary">↵</kbd>
                   )}
                 </div>
               );
             })}
 
             {/* Footer hints */}
-            <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 flex gap-3 text-[10px] text-gray-400 dark:text-gray-500">
-              <span><kbd className="font-mono bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded px-1">↵</kbd> {t('spotlight_open')}</span>
-              <span><kbd className="font-mono bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded px-1">↑↓</kbd> {t('spotlight_navigate')}</span>
-              <span><kbd className="font-mono bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded px-1">Esc</kbd> {t('spotlight_close')}</span>
+            <div className="flex gap-3 border-t-2 border-border bg-secondary px-4 py-2 text-[10px] text-muted-foreground">
+              <span><kbd className="rounded border-2 border-border bg-card px-1 font-mono">↵</kbd> {t('spotlight_open')}</span>
+              <span><kbd className="rounded border-2 border-border bg-card px-1 font-mono">↑↓</kbd> {t('spotlight_navigate')}</span>
+              <span><kbd className="rounded border-2 border-border bg-card px-1 font-mono">Esc</kbd> {t('spotlight_close')}</span>
             </div>
           </>
         )}
 
         {/* ─── No Results ─── */}
         {showNoResults && (
-          <div className="px-4 py-5 text-center text-sm text-gray-400 dark:text-gray-500">
-            {t('spotlight_no_results')} <span className="font-medium text-gray-600 dark:text-gray-300">"{query}"</span>
+          <div className="px-4 py-5 text-center text-sm text-muted-foreground">
+            {t('spotlight_no_results')} <span className="font-medium text-foreground">"{query}"</span>
           </div>
         )}
       </div>

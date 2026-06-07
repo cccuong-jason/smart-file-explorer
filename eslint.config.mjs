@@ -9,6 +9,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     '.smart-file-explorer-build-workspaces/**',
     '.smart-file-explorer-workspaces/**',
+    '.worktrees/**',
     '.next/**',
     'coverage/**',
     'dist/**',

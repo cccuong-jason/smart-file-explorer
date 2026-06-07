@@ -141,7 +141,7 @@ function getRecencyBoost(lastModified?: number) {
 
   const msInDay = 1000 * 60 * 60 * 24;
   const ageInDays = Math.max(0, (Date.now() - lastModified) / msInDay);
-  return clamp(1 - ageInDays / 45, 0, 1);
+  return clamp(1 - ageInDays / 90, 0, 1);
 }
 
 function hasLatestIntent(queryTokens: string[]) {
@@ -330,6 +330,9 @@ export function rankSearchResults({
 
     if (chunkSignal) {
       entry.score += chunkSignal.score;
+      if (!file.content && chunkSignal.score > 0) {
+        entry.score += Math.min(chunkSignal.score * 0.35, 0.28);
+      }
       chunkSignal.reasons.forEach((reason) => {
         addScore(
           entry,
@@ -397,8 +400,8 @@ export function rankSearchResults({
 
     const versionSignal = getVersionSignal(file);
     if (wantsLatest && versionSignal > 0) {
-      addScore(entry, versionSignal * 0.24, 'latest_signal', snippet, getVersionEvidence(file));
-      if (versionSignal >= 0.5 && recencyBoost >= 0.45) {
+      addScore(entry, versionSignal * 0.3, 'latest_signal', snippet, getVersionEvidence(file));
+      if (versionSignal >= 0.45 && recencyBoost >= 0.2) {
         entry.isLikelyLatest = true;
       }
     }

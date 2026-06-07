@@ -27,11 +27,11 @@ export function TagInput({ tags, onAddTag, onRemoveTag }: TagInputProps) {
     return (
         <div className="flex flex-wrap gap-2 items-center">
             {tags.map(tag => (
-                <span key={tag} className="bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-200 text-xs px-2 py-1 rounded-full flex items-center gap-1 border border-indigo-100 dark:border-indigo-900">
+                <span key={tag} className="flex items-center gap-1 rounded border-2 border-border bg-secondary px-2 py-1 font-head text-xs text-foreground">
                     {tag}
                     <button
                         onClick={() => onRemoveTag(tag)}
-                        className="hover:text-indigo-900 dark:hover:text-indigo-100 focus:outline-none"
+                        className="hover:text-primary focus:outline-none"
                     >
                         <X className="w-3 h-3" />
                     </button>
@@ -50,13 +50,13 @@ export function TagInput({ tags, onAddTag, onRemoveTag }: TagInputProps) {
                         }}
                         autoFocus
                         placeholder={`${t('add_tag')}...`}
-                        className="text-xs border border-indigo-200 dark:border-indigo-800 rounded-full px-2 py-1 outline-none focus:border-indigo-400 w-24 text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 placeholder-gray-400 dark:placeholder:text-gray-500"
+                        className="w-24 rounded border-2 border-border bg-card px-2 py-1 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
                     />
                 </div>
             ) : (
                 <button
                     onClick={() => setIsInputVisible(true)}
-                    className="text-xs flex items-center gap-1 text-gray-400 dark:text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-300 border border-dashed border-gray-300 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-full px-2 py-1 transition-all"
+                    className="flex items-center gap-1 rounded border-2 border-dashed border-border px-2 py-1 font-head text-xs text-muted-foreground transition-all hover:border-primary hover:text-primary"
                 >
                     <Plus className="w-3 h-3" /> {t('add_tag')}
                 </button>

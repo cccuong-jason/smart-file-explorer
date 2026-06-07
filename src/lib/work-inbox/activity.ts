@@ -11,6 +11,7 @@ export interface WorkInboxRecentFile {
 export interface WorkInboxActivitySnapshot {
   lastInboxVisitAt?: number;
   recentFiles: WorkInboxRecentFile[];
+  workspaceVisits?: Record<string, number>;
   pinnedItemIds: string[];
   dismissedItemKeys: string[];
 }
@@ -57,16 +58,33 @@ function sanitizeStringList(value: unknown) {
   )).slice(0, 64);
 }
 
+function sanitizeWorkspaceVisits(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([workspaceId, timestamp]) => (
+        typeof workspaceId === 'string'
+        && workspaceId.trim().length > 0
+        && typeof timestamp === 'number'
+        && Number.isFinite(timestamp)
+      ))
+      .slice(0, 128),
+  ) as Record<string, number>;
+}
+
 export function getWorkInboxActivity(): WorkInboxActivitySnapshot {
   const storage = getStorage();
   if (!storage) {
-    return { recentFiles: [], pinnedItemIds: [], dismissedItemKeys: [] };
+    return { recentFiles: [], workspaceVisits: {}, pinnedItemIds: [], dismissedItemKeys: [] };
   }
 
   try {
     const raw = storage.getItem(WORK_INBOX_ACTIVITY_KEY);
     if (!raw) {
-      return { recentFiles: [], pinnedItemIds: [], dismissedItemKeys: [] };
+      return { recentFiles: [], workspaceVisits: {}, pinnedItemIds: [], dismissedItemKeys: [] };
     }
 
     const parsed = JSON.parse(raw) as Partial<WorkInboxActivitySnapshot> & { pinnedWorkspaceIds?: string[] };
@@ -76,11 +94,12 @@ export function getWorkInboxActivity(): WorkInboxActivitySnapshot {
     return {
       lastInboxVisitAt: typeof parsed.lastInboxVisitAt === 'number' ? parsed.lastInboxVisitAt : undefined,
       recentFiles: sanitizeRecentFiles(parsed.recentFiles),
+      workspaceVisits: sanitizeWorkspaceVisits(parsed.workspaceVisits),
       pinnedItemIds: pinnedItemIds.length > 0 ? pinnedItemIds : legacyPinnedWorkspaceIds,
       dismissedItemKeys: sanitizeStringList(parsed.dismissedItemKeys),
     };
   } catch {
-    return { recentFiles: [], pinnedItemIds: [], dismissedItemKeys: [] };
+    return { recentFiles: [], workspaceVisits: {}, pinnedItemIds: [], dismissedItemKeys: [] };
   }
 }
 
@@ -107,6 +126,12 @@ export function recordWorkInboxOpenFile(
   now = Date.now(),
 ) {
   const snapshot = getWorkInboxActivity();
+  const workspaceVisits = file.workspaceId
+    ? {
+      ...(snapshot.workspaceVisits ?? {}),
+      [file.workspaceId]: now,
+    }
+    : (snapshot.workspaceVisits ?? {});
   const recentFiles = [
     {
       ...file,
@@ -118,6 +143,19 @@ export function recordWorkInboxOpenFile(
   return saveWorkInboxActivity({
     ...snapshot,
     recentFiles,
+    workspaceVisits,
+  });
+}
+
+export function recordWorkInboxWorkspaceVisit(workspaceId: string, now = Date.now()) {
+  const snapshot = getWorkInboxActivity();
+
+  return saveWorkInboxActivity({
+    ...snapshot,
+    workspaceVisits: {
+      ...(snapshot.workspaceVisits ?? {}),
+      [workspaceId]: now,
+    },
   });
 }
 

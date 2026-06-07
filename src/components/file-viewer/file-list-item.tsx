@@ -118,7 +118,7 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
         orange: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
         pink: 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400',
         red: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-        gray: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+        gray: 'bg-secondary text-muted-foreground',
         purple: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
         green: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
     };
@@ -191,10 +191,10 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
             onDragStart={handleDragStart}
             onClick={onClick}
             className={clsx(
-                'group relative flex items-start p-4 cursor-pointer transition-all border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                'group relative flex items-start p-4 cursor-pointer transition-all border-b-2 border-border hover:bg-muted',
                 isSelected
-                    ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-l-4 border-l-indigo-600 dark:border-l-indigo-500'
-                    : 'bg-white dark:bg-gray-900 border-l-4 border-l-transparent pl-[calc(1rem+4px)]',
+                    ? 'bg-secondary border-l-4 border-l-border shadow-inner'
+                    : 'bg-card border-l-4 border-l-transparent pl-[calc(1rem+4px)]',
             )}
         >
             {/* Tinted overlay on source row while dragging, matching icon color accurately */}
@@ -212,7 +212,7 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
 
             <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex justify-between items-start">
-                    <h4 className={clsx('text-base font-semibold truncate pr-8', isSelected ? 'text-indigo-700 dark:text-indigo-400' : 'text-gray-900 dark:text-gray-100')}>
+                    <h4 className={clsx('text-base font-semibold truncate pr-8', isSelected ? 'font-head text-foreground' : 'text-foreground')}>
                         {file.name}
                     </h4>
                     <div className="flex items-center gap-2 shrink-0">
@@ -224,26 +224,26 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
                     </div>
                 </div>
 
-                <p className="text-xs text-gray-400 truncate font-mono inline-block">{file.path}</p>
+                <p className="text-xs text-muted-foreground truncate font-mono inline-block">{file.path}</p>
 
-                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 pt-1">
+                <div className="flex items-center gap-3 text-xs text-muted-foreground pt-1">
                     <span className={clsx('font-bold text-[10px] px-1.5 py-0.5 rounded uppercase', colorClass.replace('bg-', 'bg-opacity-20 bg-'))}>
                         {config.label}
                     </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+                    <span className="w-1 h-1 rounded-full bg-border" />
                     <span className="flex items-center gap-1">
-                        {t('size')}: <span className="font-medium text-gray-700 dark:text-gray-300">{formatSize(file.size)}</span>
+                        {t('size')}: <span className="font-medium text-foreground">{formatSize(file.size)}</span>
                     </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+                    <span className="w-1 h-1 rounded-full bg-border" />
                     <span className="flex items-center gap-1">
-                        {t('modified')}: <span className="font-medium text-gray-700 dark:text-gray-300">{formatDate(file.lastModified)}</span>
+                        {t('modified')}: <span className="font-medium text-foreground">{formatDate(file.lastModified)}</span>
                     </span>
                 </div>
 
                 {(file.isLikelyLatest || visibleFactors.length > 0) && (
                     <div className="flex flex-wrap items-center gap-2 pt-2">
                         {file.isLikelyLatest && (
-                            <span className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 rounded-full border border-indigo-100 dark:border-indigo-900">
+                            <span className="text-[11px] font-medium text-foreground bg-secondary px-2 py-1 rounded border-2 border-border">
                                 {t('likely_latest_version')}
                             </span>
                         )}
@@ -265,7 +265,7 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
                             );
                         })}
                         {remainingFactorCount > 0 && (
-                            <span className="text-[11px] font-medium px-2 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                            <span className="text-[11px] font-medium px-2 py-1 rounded border-2 border-border bg-muted text-foreground">
                                 {t('match_more_factors', { count: remainingFactorCount })}
                             </span>
                         )}
@@ -273,9 +273,9 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
                 )}
 
                 {file.snippet && (
-                    <div className="mt-2 border-l-2 border-gray-200 dark:border-gray-700 pl-3">
+                    <div className="mt-2 border-l-2 border-border pl-3">
                         {file.locationLabel && (
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300 mb-1">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-1">
                                 {file.locationLabel}
                             </p>
                         )}
@@ -290,8 +290,8 @@ export function FileListItem({ file, score, isSelected, onClick, onToggleStar }:
                 <button
                     onClick={(e) => { e.stopPropagation(); onToggleStar?.(e); }}
                     className={clsx(
-                        'p-1.5 rounded-full transition-colors hover:bg-gray-200 dark:hover:bg-gray-700',
-                        file.isStarred ? 'text-amber-400 fill-amber-400' : 'text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-400',
+                        'p-1.5 rounded border-2 border-transparent transition-colors hover:border-border hover:bg-muted',
+                        file.isStarred ? 'text-secondary-foreground fill-secondary-foreground bg-secondary border-border' : 'text-muted-foreground hover:text-foreground',
                     )}
                 >
                     <Star className={clsx('h-5 w-5', file.isStarred && 'fill-current')} />
