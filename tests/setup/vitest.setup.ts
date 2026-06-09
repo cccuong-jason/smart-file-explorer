@@ -16,6 +16,43 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 });
 
+class MockIntersectionObserver implements IntersectionObserver {
+  readonly root = null;
+  readonly rootMargin = '';
+  readonly thresholds = [];
+
+  disconnect = vi.fn();
+  observe = vi.fn();
+  takeRecords = vi.fn(() => []);
+  unobserve = vi.fn();
+}
+
+Object.defineProperty(window, 'IntersectionObserver', {
+  writable: true,
+  value: MockIntersectionObserver,
+});
+
+Object.defineProperty(globalThis, 'IntersectionObserver', {
+  writable: true,
+  value: MockIntersectionObserver,
+});
+
+class MockResizeObserver implements ResizeObserver {
+  disconnect = vi.fn();
+  observe = vi.fn();
+  unobserve = vi.fn();
+}
+
+Object.defineProperty(window, 'ResizeObserver', {
+  writable: true,
+  value: MockResizeObserver,
+});
+
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  writable: true,
+  value: MockResizeObserver,
+});
+
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   save: vi.fn(),
 }));

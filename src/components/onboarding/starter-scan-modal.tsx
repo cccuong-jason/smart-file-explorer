@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckSquare, FolderOpen, Sparkles } from 'lucide-react';
+import { CheckSquare, FolderOpen, Sparkles } from '@/components/icons';
 import { Button } from '@/components/retroui/Button';
 import { useTranslation } from '@/lib/i18n';
 import type { StarterScanSuggestion } from '@/lib/onboarding/starter-scan';

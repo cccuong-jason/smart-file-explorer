@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, FileText, FolderOpen, FolderTree } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, FolderOpen, FolderTree } from '@/components/icons';
 
 import type { BrowserFileRecord } from '@/lib/file-browser/utils';
 import type { TreeFolderNode, TreeNode } from '@/lib/file-browser/tree-view';

@@ -1,6 +1,7 @@
 'use client';
 
-import { ArrowUpRight, CheckCircle2, Loader2, Radar } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, Radar } from '@/components/icons';
+import { Loader } from '@/components/retroui/Loader';
 
 import { useTranslation } from '@/lib/i18n';
 import type { TrayActivityState } from '@/lib/tray-activity/state';
@@ -31,7 +32,7 @@ export function TrayActivityPill({ activity, onOpenApp }: TrayActivityPillProps)
             {isComplete ? (
               <CheckCircle2 className="h-4 w-4 text-[var(--ui-success)]" />
             ) : (
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--ui-primary)]" />
+              <Loader size="sm" aria-label="Indexing" />
             )}
           </div>
           <div className="min-w-0">

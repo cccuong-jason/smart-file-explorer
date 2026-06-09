@@ -124,6 +124,10 @@ make test-ci
 make check
 ```
 
+## CI and Desktop Release
+
+GitHub Actions run quality checks, UI smoke tests, Windows/macOS desktop smoke tests, security scanning, and native desktop packaging for each pull request and feature/fix branch push. See `docs/release-ci.md` for the full pipeline and artifact process.
+
 ## Troubleshooting
 
 ### Windows untrusted mount points

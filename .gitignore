@@ -21,6 +21,7 @@
 
 # production
 /build
+/artifacts/
 /.smart-file-explorer-workspaces/
 /.smart-file-explorer-build-workspaces/
 

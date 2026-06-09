@@ -1,17 +1,23 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { ToastProvider, useToast } from '@/components/ui/toast';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { Toaster } from '@/components/retroui/Sonner';
+import { toast } from 'sonner';
+
+beforeAll(() => {
+  HTMLElement.prototype.setPointerCapture ??= vi.fn();
+  HTMLElement.prototype.releasePointerCapture ??= vi.fn();
+});
 
 function ToastHarness({ onUndo }: { onUndo: () => void }) {
-  const { toast } = useToast();
-
   return (
     <button
       type="button"
-      onClick={() => toast('Pinned item', 'success', {
-        actionLabel: 'Undo',
-        onAction: onUndo,
+      onClick={() => toast.success('Pinned item', {
+        action: {
+          label: 'Undo',
+          onClick: onUndo,
+        },
       })}
     >
       Show toast
@@ -19,23 +25,21 @@ function ToastHarness({ onUndo }: { onUndo: () => void }) {
   );
 }
 
-describe('ToastProvider', () => {
-  it('renders toasts above modal layers and supports action buttons', async () => {
+describe('RetroUI Sonner', () => {
+  it('renders toasts and supports action buttons', async () => {
     const user = userEvent.setup();
     const onUndo = vi.fn();
 
     render(
-      <ToastProvider>
+      <>
         <ToastHarness onUndo={onUndo} />
-      </ToastProvider>
+        <Toaster />
+      </>
     );
 
     await user.click(screen.getByRole('button', { name: /show toast/i }));
 
-    const toastViewport = screen.getByTestId('toast-viewport');
-    expect(toastViewport.className).toContain('z-[300]');
-
-    await user.click(screen.getByRole('button', { name: /undo/i }));
+    await user.click(await screen.findByRole('button', { name: /undo/i }));
 
     expect(onUndo).toHaveBeenCalledTimes(1);
   });

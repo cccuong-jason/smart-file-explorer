@@ -1,4 +1,4 @@
-import { AlertCircle, X } from 'lucide-react';
+import { AlertCircle, X } from '@/components/icons';
 import { useState } from 'react';
 
 import { Button } from '@/components/retroui/Button';

@@ -1,15 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Keyboard, Check, X, AlertCircle, Database, Download, Trash2, ShieldCheck, Settings as SettingsIcon, Cloud, Shield, KeyRound, Activity, RefreshCw, ClipboardList } from 'lucide-react';
+import { Keyboard, Check, X, AlertCircle, Database, Download, Trash2, ShieldCheck, Settings as SettingsIcon, Cloud, Shield, KeyRound, Activity, RefreshCw, ClipboardList } from '@/components/icons';
 import { unregister, register } from '@tauri-apps/plugin-global-shortcut';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { exportIndexToJSON, clearDatabase, getAllFiles, getOcrCandidateCount } from '@/lib/file-system/db';
 import type { WatchedFolderRecord } from '@/lib/file-system/db';
 import { useTranslation } from '@/lib/i18n';
 import clsx from 'clsx';
-import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/retroui/Button';
+import { Card } from '@/components/retroui/Card';
+import { Input } from '@/components/retroui/Input';
+import { Label } from '@/components/retroui/Label';
+import { Select } from '@/components/retroui/Select';
+import { Switch } from '@/components/retroui/Switch';
+import { toast as sonnerToast } from 'sonner';
 import { clearRecentLogEvents, logFrontendMessage } from '@/lib/telemetry/logger';
 import {
   exportDiagnosticBundle,
@@ -56,7 +61,15 @@ export function SettingsModal({
   onClearCloudConfig,
 }: Props) {
   const { t } = useTranslation();
-  const { toast } = useToast();
+  const toast = (
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning' = 'info',
+  ) => {
+    if (type === 'success') sonnerToast.success(message);
+    else if (type === 'error') sonnerToast.error(message);
+    else if (type === 'warning') sonnerToast.warning(message);
+    else sonnerToast.info(message);
+  };
   
   const [activeTab, setActiveTab] = useState<'general' | 'privacy' | 'cloud' | 'diagnostics'>('general');
   
@@ -76,6 +89,7 @@ export function SettingsModal({
   const [cloudModel, setCloudModel] = useState(DEFAULT_CLOUD_INTELLIGENCE_MODEL);
   const [cloudActionState, setCloudActionState] = useState<'idle' | 'testing' | 'saving' | 'clearing'>('idle');
   const [cloudFeedback, setCloudFeedback] = useState<{ tone: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [localCloudStatus, setLocalCloudStatus] = useState(cloudStatus);
   const [diagnosticSnapshot, setDiagnosticSnapshot] = useState<DiagnosticSnapshot | null>(null);
   const [diagnosticLevelFilter, setDiagnosticLevelFilter] = useState('all');
   const [diagnosticAreaFilter, setDiagnosticAreaFilter] = useState('all');
@@ -90,6 +104,7 @@ export function SettingsModal({
       getOcrCandidateCount().then(setOcrCandidateCount);
       setCloudApiKey('');
       setCloudModel(cloudStatus.model || DEFAULT_CLOUD_INTELLIGENCE_MODEL);
+      setLocalCloudStatus(cloudStatus);
       setCloudFeedback(
         cloudStatus.lastError
           ? { tone: 'error', message: cloudStatus.lastError }
@@ -97,7 +112,7 @@ export function SettingsModal({
       );
       void refreshDiagnostics();
     }
-  }, [cloudStatus.lastError, cloudStatus.model, isOpen]);
+  }, [cloudStatus, isOpen]);
 
   // --- Hotkey Logic ---
   useEffect(() => {
@@ -183,7 +198,7 @@ export function SettingsModal({
   };
 
   const handleTestCloudConnection = async () => {
-    if (!cloudApiKey.trim() && !cloudStatus.configured) {
+    if (!cloudApiKey.trim() && !localCloudStatus.configured) {
       const message = t('privacy_cloud_status_not_connected');
       setCloudFeedback({ tone: 'info', message });
       toast(message, 'info');
@@ -197,6 +212,7 @@ export function SettingsModal({
         apiKey: cloudApiKey.trim() || undefined,
         model: cloudModel.trim() || undefined,
       });
+      setLocalCloudStatus(nextStatus);
       const message = nextStatus.lastError || t('privacy_cloud_test_success');
       setCloudFeedback({ tone: nextStatus.lastError ? 'error' : 'success', message });
       toast(message, nextStatus.lastError ? 'error' : 'success');
@@ -222,10 +238,11 @@ export function SettingsModal({
         apiKey: cloudApiKey.trim(),
         model: cloudModel.trim() || DEFAULT_CLOUD_INTELLIGENCE_MODEL,
       });
+      setLocalCloudStatus(nextStatus);
       setCloudApiKey('');
       const message = nextStatus.lastError || t('privacy_cloud_save_success');
-      setCloudFeedback({ tone: 'success', message });
-      toast(message, 'success');
+      setCloudFeedback({ tone: nextStatus.lastError ? 'error' : 'success', message });
+      toast(message, nextStatus.lastError ? 'error' : 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCloudFeedback({ tone: 'error', message });
@@ -239,7 +256,8 @@ export function SettingsModal({
   const handleClearCloudConfig = async () => {
     try {
       setCloudActionState('clearing');
-      await onClearCloudConfig();
+      const nextStatus = await onClearCloudConfig();
+      setLocalCloudStatus(nextStatus);
       setCloudApiKey('');
       const message = t('privacy_cloud_clear_success');
       setCloudFeedback({ tone: 'info', message });
@@ -305,11 +323,11 @@ export function SettingsModal({
     toast(t('diagnostics_cleared'), 'success');
   };
 
-  const cloudStatusLabel = cloudStatus.source === 'none'
+  const cloudStatusLabel = localCloudStatus.source === 'none'
     ? t('privacy_cloud_status_not_connected')
-    : cloudStatus.lastError
+    : localCloudStatus.lastError
       ? t('privacy_cloud_status_failed')
-      : cloudStatus.lastTestedAt
+      : localCloudStatus.lastTestedAt
         ? t('privacy_cloud_status_ready')
         : t('privacy_cloud_status_saved');
 
@@ -620,24 +638,11 @@ export function SettingsModal({
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    aria-pressed={cloudIntelligenceEnabled}
-                    onClick={() => onCloudIntelligenceEnabledChange(!cloudIntelligenceEnabled)}
-                    className={clsx(
-                      'relative inline-flex h-7 w-12 shrink-0 items-center rounded border-2 transition-colors',
-                      cloudIntelligenceEnabled
-                        ? 'border-border bg-primary'
-                        : 'border-border bg-card'
-                    )}
-                  >
-                    <span
-                      className={clsx(
-                        'inline-block h-5 w-5 rounded bg-background shadow transition-transform',
-                        cloudIntelligenceEnabled ? 'translate-x-6' : 'translate-x-1'
-                      )}
-                    />
-                  </button>
+                  <Switch
+                    checked={cloudIntelligenceEnabled}
+                    onCheckedChange={onCloudIntelligenceEnabledChange}
+                    aria-label={t('privacy_cloud_intelligence_title')}
+                  />
                 </div>
                 <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
                   {cloudIntelligenceEnabled
@@ -656,20 +661,20 @@ export function SettingsModal({
                     {cloudStatusLabel}
                   </span>
                   <span className="rounded border-2 border-border bg-secondary px-2.5 py-1 font-mono text-[10px] text-foreground">
-                    {cloudStatus.model || DEFAULT_CLOUD_INTELLIGENCE_MODEL}
+                    {localCloudStatus.model || DEFAULT_CLOUD_INTELLIGENCE_MODEL}
                   </span>
                 </div>
 
-                {cloudStatus.lastTestedAt && (
+                {localCloudStatus.lastTestedAt && (
                   <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    {t('privacy_cloud_last_tested')}: {new Date(cloudStatus.lastTestedAt).toLocaleString()}
+                    {t('privacy_cloud_last_tested')}: {new Date(localCloudStatus.lastTestedAt).toLocaleString()}
                   </p>
                 )}
 
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
                   {cloudApiKey.trim()
                     ? t('privacy_cloud_testing_typed_key')
-                    : cloudStatus.configured
+                    : localCloudStatus.configured
                       ? t('privacy_cloud_testing_saved_key')
                       : t('privacy_cloud_testing_no_key')}
                 </p>
@@ -690,39 +695,39 @@ export function SettingsModal({
                   </div>
                 )}
 
-                {!cloudFeedback && cloudStatus.lastError && (
+                {!cloudFeedback && localCloudStatus.lastError && (
                   <div className="mt-3 rounded border-2 border-[var(--ui-danger)] bg-[var(--ui-danger-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--ui-danger)]">
-                    {cloudStatus.lastError}
+                    {localCloudStatus.lastError}
                   </div>
                 )}
 
                 <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
                   <div className="space-y-3">
-                    <label className="block">
+                    <Label className="block">
                       <span className="mb-1 block font-head text-[11px] font-semibold text-foreground">
                         {t('privacy_cloud_api_key_label')}
                       </span>
-                      <input
+                      <Input
                         type="password"
                         value={cloudApiKey}
                         onChange={(event) => setCloudApiKey(event.target.value)}
                         placeholder={t('privacy_cloud_api_key_placeholder')}
                         aria-label={t('privacy_cloud_api_key_label')}
-                        className="w-full rounded border-2 border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                        className="bg-background px-3 py-2 text-sm text-foreground focus:border-primary"
                       />
-                    </label>
-                    <label className="block">
+                    </Label>
+                    <Label className="block">
                       <span className="mb-1 block font-head text-[11px] font-semibold text-foreground">
                         {t('privacy_cloud_model_label')}
                       </span>
-                      <input
+                      <Input
                         type="text"
                         value={cloudModel}
                         onChange={(event) => setCloudModel(event.target.value)}
                         aria-label={t('privacy_cloud_model_label')}
-                        className="w-full rounded border-2 border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                        className="bg-background px-3 py-2 text-sm text-foreground focus:border-primary"
                       />
-                    </label>
+                    </Label>
                     <p className="text-[11px] leading-relaxed text-muted-foreground">
                       {t('privacy_cloud_storage_note')}
                     </p>
@@ -753,7 +758,7 @@ export function SettingsModal({
                       >
                         {cloudActionState === 'saving' ? t('privacy_cloud_saving') : t('privacy_cloud_save_cta')}
                       </Button>
-                      {cloudStatus.configured && (
+                      {localCloudStatus.configured && (
                         <Button
                           type="button"
                           onClick={handleClearCloudConfig}
@@ -836,56 +841,56 @@ export function SettingsModal({
               </div>
 
               <div className="grid gap-3 sm:grid-cols-4">
-                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                <Card className="block bg-secondary p-3">
                   <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_events')}</div>
                   <div className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">
                     {(diagnosticSnapshot?.recentFrontendEvents.length ?? 0).toLocaleString()}
                   </div>
-                </div>
-                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                </Card>
+                <Card className="block bg-secondary p-3">
                   <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_watch_roots')}</div>
                   <div className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">
                     {(diagnosticSnapshot?.activeWatchRoots.length ?? 0).toLocaleString()}
                   </div>
-                </div>
-                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                </Card>
+                <Card className="block bg-secondary p-3">
                   <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_native_logs')}</div>
                   <div className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">
                     {(diagnosticSnapshot?.nativeLogFiles?.length ?? 0).toLocaleString()}
                   </div>
-                </div>
-                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] p-3">
+                </Card>
+                <Card className="block bg-secondary p-3">
                   <div className="text-[11px] font-semibold uppercase text-gray-500 dark:text-gray-400">{t('diagnostics_log_path')}</div>
                   <div className="mt-1 truncate text-xs font-semibold text-gray-900 dark:text-gray-100">
                     {diagnosticSnapshot?.logFilePath ?? t('diagnostics_not_available')}
                   </div>
-                </div>
+                </Card>
               </div>
 
               <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)]">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ui-border)] p-3">
                   <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{t('diagnostics_recent_events')}</div>
                   <div className="flex gap-2">
-                    <select
-                      value={diagnosticLevelFilter}
-                      onChange={(event) => setDiagnosticLevelFilter(event.target.value)}
-                      className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200"
-                      aria-label={t('diagnostics_filter_level')}
-                    >
-                      {['all', 'debug', 'info', 'warn', 'error'].map((level) => (
-                        <option key={level} value={level}>{level}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={diagnosticAreaFilter}
-                      onChange={(event) => setDiagnosticAreaFilter(event.target.value)}
-                      className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200"
-                      aria-label={t('diagnostics_filter_area')}
-                    >
-                      {['all', 'app', 'watch', 'scan', 'indexing', 'search', 'tray', 'tree', 'settings', 'cloud', 'ui'].map((area) => (
-                        <option key={area} value={area}>{area}</option>
-                      ))}
-                    </select>
+                    <Select value={diagnosticLevelFilter} onValueChange={(value) => value && setDiagnosticLevelFilter(value)}>
+                      <Select.Trigger className="h-8 min-w-28 bg-card px-2 py-1.5 text-xs" aria-label={t('diagnostics_filter_level')}>
+                        <Select.Value />
+                      </Select.Trigger>
+                      <Select.Content>
+                        {['all', 'debug', 'info', 'warn', 'error'].map((level) => (
+                          <Select.Item key={level} value={level}>{level}</Select.Item>
+                        ))}
+                      </Select.Content>
+                    </Select>
+                    <Select value={diagnosticAreaFilter} onValueChange={(value) => value && setDiagnosticAreaFilter(value)}>
+                      <Select.Trigger className="h-8 min-w-28 bg-card px-2 py-1.5 text-xs" aria-label={t('diagnostics_filter_area')}>
+                        <Select.Value />
+                      </Select.Trigger>
+                      <Select.Content>
+                        {['all', 'app', 'watch', 'scan', 'indexing', 'search', 'tray', 'tree', 'settings', 'cloud', 'ui'].map((area) => (
+                          <Select.Item key={area} value={area}>{area}</Select.Item>
+                        ))}
+                      </Select.Content>
+                    </Select>
                   </div>
                 </div>
                 <div className="max-h-64 overflow-y-auto">
