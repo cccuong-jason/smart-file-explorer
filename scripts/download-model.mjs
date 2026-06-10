@@ -23,6 +23,8 @@ const MODEL_DIR = path.join(ROOT, 'public', 'models', 'Xenova', 'all-MiniLM-L6-v
 const ORT_SOURCE_DIR = path.join(ROOT, 'node_modules', 'onnxruntime-web', 'dist');
 const ORT_DEST_DIR = path.join(ROOT, 'public', 'ort');
 const BASE_URL = 'https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main';
+const MAX_DOWNLOAD_ATTEMPTS = Number(process.env.MODEL_DOWNLOAD_ATTEMPTS ?? 3);
+const DOWNLOAD_RETRY_DELAY_MS = Number(process.env.MODEL_DOWNLOAD_RETRY_DELAY_MS ?? 750);
 
 // Required files for @xenova/transformers
 const REQUIRED_FILES = [
@@ -44,6 +46,44 @@ const ORT_RUNTIME_REQUIRED_FILES = [
   'ort-wasm-simd-threaded.jsep.wasm',
 ];
 
+function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableDownloadError(error) {
+    if (error?.status) {
+        return error.status === 429 || error.status >= 500;
+    }
+
+    return true;
+}
+
+async function fetchModelAsset(url) {
+    for (let attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt += 1) {
+        try {
+            const res = await fetch(url, { redirect: 'follow' });
+            if (!res.ok) {
+                const error = new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+                error.status = res.status;
+                throw error;
+            }
+
+            return Buffer.from(await res.arrayBuffer());
+        } catch (error) {
+            if (attempt < MAX_DOWNLOAD_ATTEMPTS && isRetryableDownloadError(error)) {
+                const delay = DOWNLOAD_RETRY_DELAY_MS * attempt;
+                process.stdout.write(`retry ${attempt}/${MAX_DOWNLOAD_ATTEMPTS} in ${delay}ms... `);
+                await wait(delay);
+                continue;
+            }
+
+            throw error;
+        }
+    }
+
+    throw new Error(`Failed to fetch ${url}`);
+}
+
 async function download(url, dest, minValidSize = 100) {
     // Skip if file already exists and is non-empty (avoids re-downloading on every build)
     if (fs.existsSync(dest) && fs.statSync(dest).size > minValidSize) {
@@ -51,13 +91,7 @@ async function download(url, dest, minValidSize = 100) {
         return;
     }
 
-    // fetch() natively follows all redirects (301, 302, 307, 308)
-    const res = await fetch(url, { redirect: 'follow' });
-    if (!res.ok) {
-        throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
-    }
-
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const buffer = await fetchModelAsset(url);
     fs.writeFileSync(dest, buffer);
     const sizeKB = (buffer.byteLength / 1024).toFixed(1);
     process.stdout.write(`done (${sizeKB} KB)\n`);

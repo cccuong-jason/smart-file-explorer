@@ -38,4 +38,12 @@ describe('vector engine runtime assets', () => {
     expect(script).toContain('ort-wasm-simd-threaded.jsep.mjs');
     expect(script).toContain('ort-wasm-simd-threaded.jsep.wasm');
   });
+
+  it('retries transient model asset download failures before failing the build', () => {
+    const script = fs.readFileSync(path.resolve(process.cwd(), 'scripts/download-model.mjs'), 'utf8');
+
+    expect(script).toContain('MAX_DOWNLOAD_ATTEMPTS');
+    expect(script).toContain('isRetryableDownloadError');
+    expect(script).toMatch(/attempt\s*<\s*MAX_DOWNLOAD_ATTEMPTS/);
+  });
 });
