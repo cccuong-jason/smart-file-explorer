@@ -243,6 +243,20 @@ test('async Tauri event listeners guard cleanup during development remounts', ()
   );
 });
 
+test('tray activity window is an opaque bottom-right work-area notification', () => {
+  const tray = read('src/app/tray-activity/page.tsx');
+  const layout = read('src/app/tray-activity/layout.tsx');
+  const config = readJson('src-tauri/tauri.conf.json');
+  const trayWindow = config.app.windows.find((window) => window.label === 'tray-activity');
+
+  assert.equal(trayWindow.transparent, false, 'Tray activity should not use a transparent glass window');
+  assert.match(tray, /primaryMonitor/, 'Tray activity should prefer the primary monitor for desktop-bar placement');
+  assert.match(tray, /getTrayActivityWindowPosition/, 'Tray activity should use the shared work-area placement helper');
+  assert.doesNotMatch(tray, /onFocusChanged/, 'Tray activity should not auto-hide or open the app just because the window gains focus');
+  assert.doesNotMatch(tray, /min-h-screen[\s\S]*bg-transparent[\s\S]*p-4/, 'Tray shell should not leave a transparent padded glass area');
+  assert.doesNotMatch(layout, /background:\s*transparent/, 'Tray layout should paint an opaque background behind the notification');
+});
+
 test('diagnostics feature exposes structured logging and native bundle commands', () => {
   const logger = read('src/lib/telemetry/logger.ts');
   const diagnostics = read('src/lib/telemetry/diagnostics.ts');

@@ -2,7 +2,8 @@
  * Model Download Script
  *
  * Downloads the Xenova/all-MiniLM-L6-v2 ONNX model files from Hugging Face
- * into public/models/ so the app can run fully OFFLINE (no CDN required).
+ * into public/models/ and stages ONNX runtime assets into public/ort/ so the
+ * app can run fully OFFLINE (no CDN required).
  *
  * This script runs automatically before every build via the "prebuild" npm hook.
  *
@@ -19,6 +20,8 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const MODEL_DIR = path.join(ROOT, 'public', 'models', 'Xenova', 'all-MiniLM-L6-v2');
+const ORT_SOURCE_DIR = path.join(ROOT, 'node_modules', 'onnxruntime-web', 'dist');
+const ORT_DEST_DIR = path.join(ROOT, 'public', 'ort');
 const BASE_URL = 'https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main';
 
 // Required files for @xenova/transformers
@@ -34,6 +37,11 @@ const REQUIRED_FILES = [
 const OPTIONAL_FILES = [
   'added_tokens.json',
   'preprocessor_config.json',
+];
+
+const ORT_RUNTIME_REQUIRED_FILES = [
+  'ort-wasm-simd-threaded.jsep.mjs',
+  'ort-wasm-simd-threaded.jsep.wasm',
 ];
 
 async function download(url, dest, minValidSize = 100) {
@@ -53,6 +61,45 @@ async function download(url, dest, minValidSize = 100) {
     fs.writeFileSync(dest, buffer);
     const sizeKB = (buffer.byteLength / 1024).toFixed(1);
     process.stdout.write(`done (${sizeKB} KB)\n`);
+}
+
+function stageOrtRuntimeAssets() {
+    console.log('\nStaging ONNX runtime assets for offline use...');
+    console.log(`   Source: node_modules/onnxruntime-web/dist`);
+    console.log(`   Destination: public/ort/\n`);
+
+    if (!fs.existsSync(ORT_SOURCE_DIR)) {
+        throw new Error('onnxruntime-web runtime assets were not found. Run npm install and try again.');
+    }
+
+    const runtimeFiles = fs
+        .readdirSync(ORT_SOURCE_DIR)
+        .filter((file) => file.startsWith('ort-wasm') && ['.mjs', '.wasm'].includes(path.extname(file)))
+        .sort();
+
+    for (const file of ORT_RUNTIME_REQUIRED_FILES) {
+        if (!runtimeFiles.includes(file)) {
+            throw new Error(`Missing required ONNX runtime asset: ${file}`);
+        }
+    }
+
+    fs.mkdirSync(ORT_DEST_DIR, { recursive: true });
+
+    for (const file of runtimeFiles) {
+        const source = path.join(ORT_SOURCE_DIR, file);
+        const dest = path.join(ORT_DEST_DIR, file);
+        const sourceSize = fs.statSync(source).size;
+
+        process.stdout.write(`  - ${file}... `);
+        if (fs.existsSync(dest) && fs.statSync(dest).size === sourceSize) {
+            process.stdout.write(`done (cached)\n`);
+            continue;
+        }
+
+        fs.copyFileSync(source, dest);
+        const sizeKB = (sourceSize / 1024).toFixed(1);
+        process.stdout.write(`done (${sizeKB} KB)\n`);
+    }
 }
 
 async function main() {
@@ -100,6 +147,8 @@ async function main() {
             }
         }
     }
+
+    stageOrtRuntimeAssets();
 
     console.log('\nAI model assets ready.');
 }

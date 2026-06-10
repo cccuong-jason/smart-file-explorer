@@ -8,12 +8,17 @@ import {
   PhysicalSize,
   currentMonitor,
   getCurrentWindow,
+  primaryMonitor,
 } from '@tauri-apps/api/window';
 
 import { TrayActivityPill } from '@/components/tray-activity/tray-activity-pill';
 import {
   createTrayActivityDetected,
+  getTrayActivityWindowPosition,
+  isDuplicateTrayActivityUpdate,
   TRAY_ACTIVITY_EVENT,
+  TRAY_ACTIVITY_WINDOW_HEIGHT,
+  TRAY_ACTIVITY_WINDOW_WIDTH,
   type TrayActivityEventPayload,
   type TrayActivityState,
   shouldTrayActivityOwnWatchEvent,
@@ -21,12 +26,9 @@ import {
 import { logEvent } from '@/lib/telemetry/logger';
 import { createAsyncUnlistenGuard } from '@/lib/tauri/async-unlisten-guard';
 
-const PILL_WIDTH = 320;
-const PILL_HEIGHT = 106;
-const PILL_MARGIN = 28;
-
 export default function TrayActivityPage() {
   const [activity, setActivity] = useState<TrayActivityState | null>(null);
+  const activityRef = useRef<TrayActivityState | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -45,20 +47,25 @@ export default function TrayActivityPage() {
     };
 
     const positionWindow = async () => {
-      const monitor = await currentMonitor();
+      const monitor = await primaryMonitor() ?? await currentMonitor();
       if (!monitor) {
         return;
       }
 
-      const x = monitor.position.x + monitor.size.width - PILL_WIDTH - PILL_MARGIN;
-      const y = monitor.position.y + monitor.size.height - PILL_HEIGHT - PILL_MARGIN;
+      const position = getTrayActivityWindowPosition(monitor);
 
-      await trayWindow.setSize(new PhysicalSize(PILL_WIDTH, PILL_HEIGHT));
-      await trayWindow.setPosition(new PhysicalPosition(x, y));
+      await trayWindow.setSize(new PhysicalSize(TRAY_ACTIVITY_WINDOW_WIDTH, TRAY_ACTIVITY_WINDOW_HEIGHT));
+      await trayWindow.setPosition(new PhysicalPosition(position.x, position.y));
     };
 
     const hideWindow = async () => {
       clearHideTimer();
+      if (!activityRef.current) {
+        await trayWindow.hide().catch(() => undefined);
+        return;
+      }
+
+      activityRef.current = null;
       setActivity(null);
       void logEvent({
         level: 'debug',
@@ -70,7 +77,13 @@ export default function TrayActivityPage() {
     };
 
     const showWindow = async (nextActivity: TrayActivityState) => {
+      if (isDuplicateTrayActivityUpdate(activityRef.current, nextActivity)) {
+        await positionWindow().catch(() => undefined);
+        return;
+      }
+
       clearHideTimer();
+      activityRef.current = nextActivity;
       setActivity(nextActivity);
       void logEvent({
         level: 'info',
@@ -80,6 +93,7 @@ export default function TrayActivityPage() {
         path: nextActivity.filePath,
         data: { kind: nextActivity.kind, progressPercent: nextActivity.kind === 'indexing' ? nextActivity.progressPercent : 100 },
       });
+      await trayWindow.setFocusable(false).catch(() => undefined);
       await positionWindow().catch(() => undefined);
       await trayWindow.show().catch(() => undefined);
     };
@@ -148,16 +162,6 @@ export default function TrayActivityPage() {
         );
 
         unlistenGuard.add(
-          await trayWindow.onFocusChanged(async ({ payload: focused }) => {
-            if (!focused) {
-              return;
-            }
-
-            await openMainWindow();
-          })
-        );
-
-        unlistenGuard.add(
           await trayWindow.onScaleChanged(async () => {
             await positionWindow().catch(() => undefined);
           })
@@ -173,16 +177,6 @@ export default function TrayActivityPage() {
       }
     };
 
-    const openMainWindow = async () => {
-      const mainWindow = await WebviewWindow.getByLabel('main');
-      if (mainWindow) {
-        await mainWindow.show().catch(() => undefined);
-        await mainWindow.setFocus().catch(() => undefined);
-      }
-
-      await hideWindow();
-    };
-
     void setup();
 
     return () => {
@@ -192,7 +186,7 @@ export default function TrayActivityPage() {
   }, []);
 
   return (
-    <main className="flex min-h-screen items-end justify-end bg-transparent p-4">
+    <main className="flex h-screen w-screen bg-card">
       <TrayActivityPill
         activity={activity}
         onOpenApp={async () => {
@@ -203,6 +197,7 @@ export default function TrayActivityPage() {
           }
 
           const trayWindow = getCurrentWindow();
+          activityRef.current = null;
           setActivity(null);
           await trayWindow.hide().catch(() => undefined);
         }}

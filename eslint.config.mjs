@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     'dist/**',
     'out/**',
     'playwright-report/**',
+    'public/ort/**',
     'src-tauri/target/**',
     'test-results/**',
   ]),
