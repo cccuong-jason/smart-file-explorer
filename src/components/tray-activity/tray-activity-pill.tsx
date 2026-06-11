@@ -24,7 +24,7 @@ export function TrayActivityPill({ activity, onOpenApp }: TrayActivityPillProps)
     <button
       type="button"
       onClick={onOpenApp}
-      className="group flex w-[320px] flex-col gap-3 rounded border-2 border-border bg-card px-4 py-3 text-left text-card-foreground shadow-md transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary"
+      className="group flex h-[106px] w-[320px] flex-col gap-3 rounded border-2 border-border bg-card px-4 py-3 text-left text-card-foreground shadow-md transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">

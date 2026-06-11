@@ -15,9 +15,21 @@ export type TrayActivityState =
     };
 
 export const TRAY_ACTIVITY_EVENT = 'tray-activity:update';
+export const TRAY_ACTIVITY_WINDOW_WIDTH = 320;
+export const TRAY_ACTIVITY_WINDOW_HEIGHT = 106;
+export const TRAY_ACTIVITY_WINDOW_MARGIN = 16;
 
 export interface TrayActivityEventPayload {
   activity: TrayActivityState | null;
+}
+
+interface TrayActivityMonitorBounds {
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  workArea?: {
+    position: { x: number; y: number };
+    size: { width: number; height: number };
+  };
 }
 
 export function shouldShowTrayActivityForWatchEvent(options: {
@@ -98,6 +110,37 @@ export function getTrayActivityVisibility(
   }
 
   return 'visible';
+}
+
+export function getTrayActivityWindowPosition(monitor: TrayActivityMonitorBounds) {
+  const bounds = monitor.workArea ?? {
+    position: monitor.position,
+    size: monitor.size,
+  };
+
+  return {
+    x: bounds.position.x + bounds.size.width - TRAY_ACTIVITY_WINDOW_WIDTH - TRAY_ACTIVITY_WINDOW_MARGIN,
+    y: bounds.position.y + bounds.size.height - TRAY_ACTIVITY_WINDOW_HEIGHT - TRAY_ACTIVITY_WINDOW_MARGIN,
+  };
+}
+
+export function isDuplicateTrayActivityUpdate(
+  current: TrayActivityState | null,
+  next: TrayActivityState | null
+) {
+  if (!current || !next) {
+    return false;
+  }
+
+  if (current.kind !== next.kind || current.filePath !== next.filePath) {
+    return false;
+  }
+
+  if (current.kind === 'indexing' && next.kind === 'indexing') {
+    return current.progressPercent === next.progressPercent;
+  }
+
+  return current.kind === 'complete' && next.kind === 'complete';
 }
 
 function getFileName(path: string) {

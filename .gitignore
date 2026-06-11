@@ -27,6 +27,7 @@
 
 # AI model assets - downloaded at build time via scripts/download-model.mjs
 /public/models
+/public/ort
 
 # misc
 .DS_Store
