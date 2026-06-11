@@ -201,15 +201,20 @@ test('main tree view opens as a full folder and file hierarchy', () => {
   );
 });
 
-test('tray activity window can receive native watch events while the main window is hidden', () => {
+test('main watcher owns raw native events and tray only receives explicit activity updates', () => {
   const page = read('src/app/tray-activity/page.tsx');
   const main = read('src/app/page.tsx');
   const capability = readJson('src-tauri/capabilities/default.json');
 
-  assert.match(
+  assert.doesNotMatch(
     page,
     /listen<\{ kind: string; path: string \}>\('sys-file-event'/,
-    'Tray activity should listen directly for native file watcher events'
+    'Tray activity should not listen directly for raw native file watcher events'
+  );
+  assert.match(
+    page,
+    /listen<TrayActivityEventPayload>\(TRAY_ACTIVITY_EVENT/,
+    'Tray activity should only subscribe to explicit activity updates'
   );
   assert.ok(
     capability.windows.includes('tray-activity'),
@@ -222,8 +227,13 @@ test('tray activity window can receive native watch events while the main window
   );
   assert.match(
     main,
-    /createTrayActivityDetected[\s\S]*indexingCoordinator\.enqueue/,
-    'Main watcher should show a tray detected state before background indexing can complete'
+    /listen<\{ kind: string; path: string \}>\('sys-file-event'/,
+    'Main window should own raw native file watcher events'
+  );
+  assert.match(
+    main,
+    /shouldShowTrayActivityForWatchEvent[\s\S]*createTrayActivityDetected[\s\S]*indexingCoordinator\.enqueue/,
+    'Main watcher should gate tray activity before emitting detected state'
   );
 });
 

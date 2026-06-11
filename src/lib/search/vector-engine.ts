@@ -2,13 +2,21 @@ import { env, pipeline, type PipelineType } from '@xenova/transformers';
 
 const allowRemoteModels = import.meta.env.VITE_ALLOW_REMOTE_MODELS === 'true';
 const localModelPath = import.meta.env.VITE_MODEL_PATH ?? '/models/';
-const ortWasmPath = withTrailingSlash(import.meta.env.VITE_ORT_WASM_PATH ?? '/ort/');
+const ortWasmBasePath = withTrailingSlash(import.meta.env.VITE_ORT_WASM_PATH ?? '/ort/');
+
+type OnnxRuntimeWasmPaths = {
+    mjs: string;
+    wasm: string;
+};
 
 // Read from frontend environment variables with safe local-first defaults.
 env.allowLocalModels = true;
 env.allowRemoteModels = allowRemoteModels;
 env.localModelPath = localModelPath;
-env.backends.onnx.wasm.wasmPaths = ortWasmPath;
+(env.backends.onnx.wasm as { wasmPaths?: OnnxRuntimeWasmPaths }).wasmPaths = {
+    mjs: `${ortWasmBasePath}ort-wasm-simd-threaded.jsep.mjs`,
+    wasm: `${ortWasmBasePath}ort-wasm-simd-threaded.jsep.wasm`,
+};
 
 function withTrailingSlash(path: string) {
     return path.endsWith('/') ? path : `${path}/`;

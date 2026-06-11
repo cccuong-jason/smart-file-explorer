@@ -7,7 +7,6 @@ import {
   getTrayActivityWindowPosition,
   getTrayActivityVisibility,
   isDuplicateTrayActivityUpdate,
-  shouldTrayActivityOwnWatchEvent,
   shouldShowTrayActivityForWatchEvent,
 } from '@/lib/tray-activity/state';
 
@@ -48,11 +47,6 @@ describe('tray activity state', () => {
         isMainWindowVisible: true,
       })
     ).toBe(false);
-  });
-
-  it('lets the tray activity window own watch events while the main window is hidden', () => {
-    expect(shouldTrayActivityOwnWatchEvent({ isMainWindowVisible: false })).toBe(true);
-    expect(shouldTrayActivityOwnWatchEvent({ isMainWindowVisible: true })).toBe(false);
   });
 
   it('builds indexing progress with a friendly fallback label', () => {

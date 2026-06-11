@@ -13,7 +13,6 @@ import {
 
 import { TrayActivityPill } from '@/components/tray-activity/tray-activity-pill';
 import {
-  createTrayActivityDetected,
   getTrayActivityWindowPosition,
   isDuplicateTrayActivityUpdate,
   TRAY_ACTIVITY_EVENT,
@@ -21,7 +20,6 @@ import {
   TRAY_ACTIVITY_WINDOW_WIDTH,
   type TrayActivityEventPayload,
   type TrayActivityState,
-  shouldTrayActivityOwnWatchEvent,
 } from '@/lib/tray-activity/state';
 import { logEvent } from '@/lib/telemetry/logger';
 import { createAsyncUnlistenGuard } from '@/lib/tauri/async-unlisten-guard';
@@ -33,11 +31,6 @@ export default function TrayActivityPage() {
 
   useEffect(() => {
     const trayWindow = getCurrentWindow();
-
-    const isMainWindowVisible = async () => {
-      const mainWindow = await WebviewWindow.getByLabel('main');
-      return await mainWindow?.isVisible().catch(() => false) ?? false;
-    };
 
     const clearHideTimer = () => {
       if (hideTimerRef.current) {
@@ -126,38 +119,6 @@ export default function TrayActivityPage() {
 
             await showWindow(nextActivity);
             scheduleHideForCompletion(nextActivity);
-          })
-        );
-
-        unlistenGuard.add(
-          await listen<{ kind: string; path: string }>('sys-file-event', async (event) => {
-            const mainVisible = await isMainWindowVisible();
-            if (!shouldTrayActivityOwnWatchEvent({ isMainWindowVisible: mainVisible })) {
-              return;
-            }
-
-            const { kind, path } = event.payload;
-            if (kind === 'remove') {
-              void logEvent({
-                level: 'info',
-                area: 'tray',
-                event: 'watch.remove',
-                message: 'Received hidden-window remove event',
-                path,
-              });
-              await hideWindow();
-              return;
-            }
-
-            void logEvent({
-              level: 'info',
-              area: 'tray',
-              event: 'watch.detected',
-              message: 'Received hidden-window watched file event',
-              path,
-              data: { kind },
-            });
-            await showWindow(createTrayActivityDetected({ path, detectedAt: Date.now() }));
           })
         );
 
