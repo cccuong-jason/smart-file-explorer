@@ -39,12 +39,6 @@ export function shouldShowTrayActivityForWatchEvent(options: {
   return options.isNewWatchedAddition;
 }
 
-export function shouldTrayActivityOwnWatchEvent(options: {
-  isMainWindowVisible: boolean;
-}) {
-  return !options.isMainWindowVisible;
-}
-
 export function createTrayActivityIndexing(options: {
   path: string;
   processedCount: number;

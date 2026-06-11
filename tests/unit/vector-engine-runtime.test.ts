@@ -8,14 +8,14 @@ describe('vector engine runtime assets', () => {
     vi.resetModules();
   });
 
-  it('points Transformers ONNX wasm loading at local public runtime assets', async () => {
+  it('points Transformers ONNX wasm loading at exact local public runtime assets', async () => {
     const mockedEnv = {
       allowLocalModels: false,
       allowRemoteModels: true,
       localModelPath: '',
       backends: {
         onnx: {
-          wasm: {} as { wasmPaths?: string },
+          wasm: {} as { wasmPaths?: string | { mjs: string; wasm: string } },
         },
       },
     };
@@ -27,7 +27,10 @@ describe('vector engine runtime assets', () => {
 
     await import('@/lib/search/vector-engine');
 
-    expect(mockedEnv.backends.onnx.wasm.wasmPaths).toBe('/ort/');
+    expect(mockedEnv.backends.onnx.wasm.wasmPaths).toEqual({
+      mjs: '/ort/ort-wasm-simd-threaded.jsep.mjs',
+      wasm: '/ort/ort-wasm-simd-threaded.jsep.wasm',
+    });
   });
 
   it('stages the ONNX runtime module and wasm files during model download', () => {
